@@ -64,7 +64,7 @@ Lang.translations   = {
         offlineModeHint: 'Sin conexión',
         offlineModeInfoMessage: 'No tenés conexión a internet, verás resultados almacenados en la memoria hasta que vuelvas a estar en línea.',
         gotItBtnLabel: 'Entendido',
-        alternativeTripStartTimeMessage: 'O podés tomár el siguiente a las',
+        alternativeTripStartTimeMessage: 'O podés tomar el siguiente a las',
         fetchTrainStationsMapError: 'Ocurrió un error de conexión al intentar obtener el mapa de estaciones de tren, por favor, volvé a intentarlo más tarde.',
         fetchHolidaysListError: 'Ocurrió un error de conexión al intentar obtener la lista de feriados, por favor, volvé a intentarlo más tarde.',
         fetchAvailabilityOptionsError: 'Ocurrió un error de conexión al intentar obtener la lista de opciones de disponibilidad, por favor, volvé a intentarlo más tarde.',
