@@ -213,7 +213,9 @@ export default function DestinationPicker({ navigation }) {
         let location;
   
         try {
-            location = await Location.getCurrentPositionAsync();
+            location = await Location.getCurrentPositionAsync({
+                timeout: process.env.GPS_FIX_TIMEOUT
+            });
 
             console.debug('location:', location);
         } catch (exception) {
