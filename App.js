@@ -18,7 +18,9 @@ import OfflineModeInfo   from './components/OfflineModeInfo';
 const Stack = createStackNavigator();
 
 export default function App() {
-  SplashScreen.hide();
+  if (SplashScreen !== null) {
+    SplashScreen.hide();
+  }
 
   return (
     <NavigationContainer>
