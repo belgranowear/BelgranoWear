@@ -1,3 +1,5 @@
+import SplashScreen from 'react-native-splash-screen';
+
 import React from 'react';
 
 import { NavigationContainer }        from '@react-navigation/native';
@@ -10,6 +12,8 @@ import OfflineModeInfo   from './components/OfflineModeInfo';
 const Stack = createNativeStackNavigator();
 
 export default function App() {
+  SplashScreen.hide();
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
