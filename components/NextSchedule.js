@@ -1,14 +1,16 @@
-import React, { useEffect, useState, componentWillUnmount } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
   ActivityIndicator,
   SafeAreaView,
   StyleSheet,
+  Platform,
   Text,
   View,
-  Button,
   Vibration
 } from 'react-native';
+
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import dayjs    from 'dayjs';
 import duration from 'dayjs/plugin/duration';
@@ -18,8 +20,6 @@ dayjs.extend(duration);
 import Cache           from './Cache';
 import Lang            from './Lang';
 import OfflineModeHint from './OfflineModeHint';
-
-const Separator = () => <View style={styles.separator} />;
 
 export default function NextSchedule({ navigation, route }) {
     const [ crashMessage,            setCrashMessage            ] = useState();
@@ -312,13 +312,22 @@ export default function NextSchedule({ navigation, route }) {
                 : (
                   nextTripTime.diff() < 0
                     ? <Text style={styles.centeredText}>
-                        { Lang.t('noTripsFoundMessage') }
+                        {Lang.t('noTripsFoundMessage')}
                       </Text>
                     : <View>
                         <Text style={styles.centeredText}>
-                          { Lang.t('nextTripMessage') }
+                          <Text style={styles.centeredBoldText}>{route.params.origin.title}</Text>
+                        </Text>
+                        <Text style={styles.centeredText}>
+                          <Icon name="chevron-double-right" size={16} color='white' />
                         </Text>
                         <Text style={styles.centeredBoldText}>
+                          {route.params.destination.title}
+                        </Text>
+                        <Text style={styles.centeredText}>
+                          {Lang.t('nextTripScheduleForMessage')}
+                        </Text>
+                        <Text style={styles.centeredLargeBoldText}>
                           {nextTripTime.format('HH:mm')}
                         </Text>
                         <Text style={styles.centeredThinText}>
@@ -335,24 +344,6 @@ export default function NextSchedule({ navigation, route }) {
                 )
           }
 
-          <Separator />
-
-          {
-            typeof(nextTripTime)         != 'undefined'
-            &&
-            typeof(remainingTimeMessage) != 'undefined'
-              ? <Button
-                  title={ Lang.t('goBackBtnLabel') }
-                  color="#be4936"
-                  onPress={() => {
-                    Vibration.cancel();
-
-                    navigation.goBack();
-                  }}
-                ></Button>
-              : ''
-          }
-
         </SafeAreaView>
     );
 }
@@ -366,24 +357,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginTop: 0,
-    paddingVertical: 6
-  },
-  item: {
-    width: '100%',
-    paddingVertical: 12,
-    marginVertical: 4
+    marginTop: (Platform.constants.uiMode == 'watch' ? -24 : 0), // avoid layout clipping on rounded watches
+    paddingVertical: 0
   },
   title: { textAlign: 'center' },
   centeredText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'normal',
     textAlign: 'center'
   },
   centeredBoldText: {
     color: '#fff',
-    fontSize: 24,
+    fontSize: 17,
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
+  centeredLargeBoldText: {
+    color: '#fff',
+    fontSize: 30,
     fontWeight: 'bold',
     textAlign: 'center'
   },
@@ -392,10 +384,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '300',
     textAlign: 'center'
-  },
-  separator: {
-    marginVertical: 8,
-    borderBottomColor: '#737373',
-    borderBottomWidth: StyleSheet.hairlineWidth,
   }
 });

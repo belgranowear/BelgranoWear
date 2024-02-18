@@ -8,6 +8,8 @@ Lang.locale         = Localization.getLocales()[0].languageCode;
 Lang.enableFallback = true;
 Lang.translations   = {
     en: {
+        to: 'to',
+        from: 'from',
         selectDestinationHint: 'Select a destination',
         goBackBtnLabel: 'Go back',
         noTripsFoundMessage: 'No trips found, please try again tomorrow.',
@@ -19,7 +21,8 @@ Lang.translations   = {
         seconds: 'seconds',
         remaining: 'remaining',
         and: 'and',
-        nextTripMessage: 'Your next trip is scheduled for',
+        nextTripMessage: 'Your next trip from',
+        nextTripScheduleForMessage: 'is scheduled for',
         nextTripRemainingTimeMessage: '%s remaining',
         hurryUpMessage: 'Hurry up! The train is arriving in a few seconds.',
         fetchingTrainStationsMapMessage: 'Fetching train stations map',
@@ -40,6 +43,8 @@ Lang.translations   = {
         fetchNextTripTimeError: 'A connection error has occured while trying to fetch the next trip time, please try again later.',
     },
     es: {
+        to: 'a',
+        from: 'desde',
         selectDestinationHint: 'Seleccione un destino',
         goBackBtnLabel: 'Volver',
         noTripsFoundMessage: 'No se encontraron viajes, volvé a intentarlo mañana.',
@@ -51,7 +56,8 @@ Lang.translations   = {
         seconds: 'segundos',
         remaining: 'resantes',
         and: 'y',
-        nextTripMessage: 'Tu siguiente viaje está programado para las',
+        nextTripMessage: 'Tu viaje de',
+        nextTripScheduleForMessage: 'está programado para las',
         nextTripRemainingTimeMessage: 'faltan %s',
         hurryUpMessage: '¡Apuráte! El tren llegará en unos pocos segundos.',
         fetchingTrainStationsMapMessage: 'Obteniendo mapa de estaciones',
