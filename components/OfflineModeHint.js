@@ -1,12 +1,10 @@
 
-import { Platform, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 export default function OfflineModeHint({ navigation, isOffline }) {
     if (!isOffline) { return <View />; }
-
-    let uiMode = Platform.constants.uiMode ?? null;
 
     return (
         <Pressable style={{
