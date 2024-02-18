@@ -195,6 +195,22 @@ export default function DestinationPicker({ navigation }) {
             });
     };
 
+    const tryGetCurrentPositionAsync = timeout => {
+        timeout = parseInt(timeout);
+
+        console.debug(`tryGetCurrentPositionAsync: timeout = ${timeout}`);
+
+        return new Promise(async (resolve, reject) => {
+            setTimeout(() => {
+                reject(
+                    new Error(`Couldn\'t get GPS location after ${timeout / 1000} seconds.`)
+                )
+            }, timeout);
+
+            resolve(await Location.getCurrentPositionAsync());
+        });
+    };
+
     const detectOriginStation = async () => {
         setCurrentOperation(
             Lang.t('detectingOriginStationMessage') + '…'
@@ -213,9 +229,7 @@ export default function DestinationPicker({ navigation }) {
         let location;
   
         try {
-            location = await Location.getCurrentPositionAsync({
-                timeout: process.env.GPS_FIX_TIMEOUT
-            });
+            location = await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
 
             console.debug('location:', location);
         } catch (exception) {
