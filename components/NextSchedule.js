@@ -212,7 +212,7 @@ export default function NextSchedule({ navigation, route }) {
 
       if (!segment) { return; }
 
-      let compiledURL = process.env.REMOTE_BASE_URL + `/schedule_${segment}.${route.params.origin}.${route.params.destination}_data.json`;
+      let compiledURL = process.env.REMOTE_BASE_URL + `/schedule_${segment}.${route.params.origin.id}.${route.params.destination.id}_data.json`;
 
       console.debug('Date:', date.format());
       console.debug('URL:',  compiledURL);

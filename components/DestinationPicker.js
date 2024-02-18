@@ -1,8 +1,11 @@
+import GestureRecognizer from 'react-native-swipe-gestures';
+
 import { StatusBar } from 'expo-status-bar';
 
 import React, { useEffect, useState } from 'react';
 
 import {
+  BackHandler,
   ActivityIndicator,
   SafeAreaView,
   FlatList,
@@ -27,7 +30,7 @@ const Item = ({item, onPress, backgroundColor, textColor}) => (
 );
 
 export default function DestinationPicker({ navigation }) {
-    const [ originStationId,      setOriginStationId      ] = useState();
+    const [ originStation,        setOriginStation        ] = useState();
     const [ trainStationsMap,     setTrainStationsMap     ] = useState();
     const [ currentOperation,     setCurrentOperation     ] = useState();
     const [ holidaysList,         setHolidaysList         ] = useState();
@@ -39,6 +42,12 @@ export default function DestinationPicker({ navigation }) {
     const [ selectedId,           setSelectedId           ] = useState();
 
     const crash = message => { setCrashMessage(message); };
+
+    const swipeRightHandler = state => {
+        console.debug('swipeRightHandler:', state);
+
+        BackHandler.exitApp();
+    }
 
     const fetchTrainStationsMap = async () => {
         setCurrentOperation(
@@ -272,7 +281,9 @@ export default function DestinationPicker({ navigation }) {
                 if (destination.title.toLowerCase().indexOf(name.toLowerCase()) > -1) {
                     console.debug('detectOriginStation:', destination, '==', name);
 
-                    setOriginStationId(destination.id);
+                    setOriginStation(destination);
+
+                    setLoadFinished(true);
                 }
             });
         });
@@ -296,7 +307,7 @@ export default function DestinationPicker({ navigation }) {
         );
       }
 
-      if (item.id == originStationId) { return; }
+      if (item.id == originStation.id) { return; }
 
       return (
         <Item
@@ -307,8 +318,8 @@ export default function DestinationPicker({ navigation }) {
             setSelectedId(item.id);
 
             navigation.navigate('NextSchedule', {
-                origin:         originStationId,
-                destination:    item.id,
+                origin:         originStation,
+                destination:    item,
                 segmentsList:   segmentsList,
                 holidaysList:   holidaysList
             });
@@ -339,45 +350,47 @@ export default function DestinationPicker({ navigation }) {
         ) { return; }
 
         detectOriginStation();
-
-        setLoadFinished(true);
     }, [ trainStationsMap, destinationsList ]);
 
     if (typeof(crashMessage) != 'undefined') {
         console.error(crashMessage);
 
         return (
-            <SafeAreaView style={styles.list}>
-                <Text style={styles.title}>
-                    {crashMessage}
-                </Text>
-            </SafeAreaView>
+            <GestureRecognizer style={{ flex: 1 }} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
+                <SafeAreaView style={styles.list}>
+                    <Text style={styles.title}>
+                        {crashMessage}
+                    </Text>
+                </SafeAreaView>
+            </GestureRecognizer>
         );
     }
 
     return (
-        <SafeAreaView style={styles.list}>
-            <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
+        <GestureRecognizer style={{ flex: 1 }} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
+            <SafeAreaView style={styles.list}>
+                <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
 
-            {
-                loadFinished
-                    ? <FlatList
-                        data={destinationsList}
-                        renderItem={renderItem}
-                        keyExtractor={item => item.id}
-                        extraData={selectedId}
-                      />
-                    : <View>
-                        <ActivityIndicator size="12" color="#be4936" />
-                        <Text style={{
-                            color: 'white',
-                            textAlign: 'center'
-                        }}>
-                            {currentOperation}
-                        </Text>
-                      </View>
-            }
-        </SafeAreaView>
+                {
+                    loadFinished
+                        ? <FlatList
+                            data={destinationsList}
+                            renderItem={renderItem}
+                            keyExtractor={item => item.id}
+                            extraData={selectedId}
+                        />
+                        : <View>
+                            <ActivityIndicator size="12" color="#be4936" />
+                            <Text style={{
+                                color: 'white',
+                                textAlign: 'center'
+                            }}>
+                                {currentOperation}
+                            </Text>
+                        </View>
+                }
+            </SafeAreaView>
+        </GestureRecognizer>
     );
 }
 
