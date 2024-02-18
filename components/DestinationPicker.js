@@ -225,6 +225,12 @@ export default function DestinationPicker({ navigation }) {
             }
         }
 
+        if (!location) {
+            crash( Lang.t('locationUnknownErrorMessage') );
+
+            return;
+        }
+
         let closestDistanceMeters = null,
             closestOriginNames    = null;
 
