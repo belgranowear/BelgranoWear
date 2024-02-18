@@ -255,6 +255,8 @@ export default function NextSchedule({ navigation, route }) {
       if (typeof(nextTripTime) == 'undefined') { return; }
 
       setTimeout(() => {
+        if (typeof(nextTripTime) == 'undefined') { return; }
+
         let remainingTimeMillis = nextTripTime.diff();
 
         if (remainingTimeMillis >= 0) {
