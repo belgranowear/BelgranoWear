@@ -270,7 +270,7 @@ export default function NextSchedule({ navigation, route }) {
     useEffect(() => {
       if (!shouldTryNextDay) { return; }
 
-      console.info(`Remaining millis underrun, trying with the next day... - ${nextTripTime.diff()}`);
+      console.info('No trips available today, trying with the next day...');
 
       let date = dayjs();
 
