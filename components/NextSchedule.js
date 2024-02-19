@@ -1,3 +1,5 @@
+import normalizeSpecialCharacters from 'specialtonormal';
+
 import React, { useEffect, useState } from 'react';
 
 import {
@@ -132,34 +134,44 @@ export default function NextSchedule({ navigation, route }) {
 
       let targetSegment = null;
 
+      let dayOfWeek = dayjsInstance.day();
+
       for (let index = 0; index < segmentIds.length; index++) {
-        console.debug('VS:', segmentIds[index], segmentsList[ segmentIds[index] ]);
+        let segmentName = segmentsList[ segmentIds[index] ].toLowerCase();
+            segmentName = normalizeSpecialCharacters(segmentName);
 
-        if (
-            lookForHolidaySegment
-            &&
-            segmentsList[ segmentIds[index] ].indexOf('feriado') > -1
-        ) {
+        console.debug('VS:', segmentIds[index], segmentName);
+
+        // Holidays
+        if (lookForHolidaySegment && segmentName.indexOf('feriado') > -1) {
           targetSegment = segmentIds[index];
 
           break;
         }
 
-        if (
-            dayjsInstance.day() == 6 // Saturday
-            &&
-            segmentsList[ segmentIds[index] ].indexOf('Sábado') > -1
-        ) {
+        // Sunday
+        if (dayOfWeek == 0 && segmentName.indexOf('domingo') > -1) {
           targetSegment = segmentIds[index];
 
           break;
         }
 
+        // Saturday
+        if (dayOfWeek == 6 && segmentName.indexOf('sabado') > -1) {
+          targetSegment = segmentIds[index];
+
+          break;
+        }
+
+        // Keep looking for the segment dedicated to holidays
         if (lookForHolidaySegment) { continue; }
 
-        targetSegment = segmentIds[index];
+        // Between monday (1) and friday (5)
+        if (dayOfWeek > 0 && dayOfWeek < 6) {
+          targetSegment = segmentIds[index];
 
-        break;
+          break;
+        }
       }
 
       if (!targetSegment) {
@@ -167,6 +179,8 @@ export default function NextSchedule({ navigation, route }) {
 
         crash( Lang.t('getTargetSegmentError') );
       }
+
+      console.debug('VST:', targetSegment);
 
       return targetSegment;
     };

@@ -30,7 +30,8 @@
     "react-native-screens": "~3.29.0",
     "react-native-splash-screen": "^3.3.0",
     "react-native-swipe-gestures": "^1.0.5",
-    "react-native-vector-icons": "^10.0.3"
+    "react-native-vector-icons": "^10.0.3",
+    "specialtonormal": "^1.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
