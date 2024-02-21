@@ -1,0 +1,25 @@
+name: rebuild
+on:
+  push:
+    branches:
+      - "master"
+
+jobs:
+
+  release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run container
+        uses: ./
+        env:
+            RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+            RELEASE_KEYSTORE_PASSPHRASE: ${{ secrets.RELEASE_KEYSTORE_PASSPHRASE }}
+            GRADLE_PROPERTIES: ${{ secrets.GRADLE_PROPERTIES }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          command: docker compose up --build
+          working-directory: $GITHUB_WORKSPACE
