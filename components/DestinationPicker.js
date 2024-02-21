@@ -422,7 +422,6 @@ const styles = StyleSheet.create({
     list: {
       display: 'flex',
       flexDirection: 'row',
-      alignSelf: 'center',
       width: '100%',
       flex: 1,
       backgroundColor: '#000',
