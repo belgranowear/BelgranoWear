@@ -30,18 +30,18 @@ gpg -d --passphrase "$RELEASE_KEYSTORE_PASSPHRASE" --batch /tmp/keystore.asc > /
 echo '=> Storing temporary ~/gradle.properties file...';
 mkdir -p ~/.gradle && printf -- "$GRADLE_PROPERTIES" > ~/.gradle/gradle.properties;
 
-# echo '=> Installing the Android SDK platform and build tools...';
+echo '=> Installing the Android SDK platform and build tools...';
 yes | sdkmanager 'build-tools;34.0.0';
 yes | sdkmanager 'platform-tools';
 
-# echo '=> Accepting all SDK licenses...';
+echo '=> Accepting all SDK licenses...';
 yes | sdkmanager --licenses;
 
-# echo '=> Complling debug AAB bundle and APK...';
+echo '=> Complling debug AAB bundle and APK...';
 npx react-native build-android --mode=debug;
 cd android; ./gradlew assembleDebug; cd ..;
 
-# echo '=> Complling release AAB bundle and APK...';
+echo '=> Complling release AAB bundle and APK...';
 npx react-native build-android --mode=release;
 cd android; ./gradlew assembleRelease; cd ..;
 
