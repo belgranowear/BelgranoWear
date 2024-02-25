@@ -8,6 +8,9 @@ export ANDROID_HOME=/tmp/android/sdk;
 
 set -e; # quit on error
 
+echo '=> Setting the current directory ('"$(pwd)"') as a safe directory for Git...';
+git config --global --add safe.directory $(pwd);
+
 echo '=> Installing Yarn dependencies...';
 yarn;
 
