@@ -2,6 +2,25 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+/**
+ * Custom properties loader based off this SO answer:
+ * https://stackoverflow.com/a/75062140
+ *
+ * This loader is being used as a workaround to some erratic behaviour with
+ * Gradle's assets where it doesn't seem to write to $HOME. This logic enforces
+ * loading from $HOME/.gradle/gradle.properties so that our multiplatform logic
+ * doesn't break between local development environments and GitHub Actions.
+ */
+def props = new Properties()
+
+File propsFile = file("${System.properties['user.home']}${File.separator}.gradle${File.separator}gradle.properties")
+
+if (!propsFile.isFile()) { // try to load from GitHub Action's custom home path
+    propsFile = file("/github/home/.gradle/gradle.properties")
+}
+
+propsFile.withInputStream { props.load(it) }
+
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
@@ -62,7 +81,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInReleaseBuilds') ?: false).toBoolean()
+def enableProguardInReleaseBuilds = (props['ENABLE_PROGUARD_IN_RELEASE_BUILDS'] ?: true).toBoolean()
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -101,11 +120,11 @@ android {
             keyPassword 'android'
         }
         release {
-            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+            if (props.containsKey('MYAPP_UPLOAD_STORE_FILE')) {
+                storeFile file(props['MYAPP_UPLOAD_STORE_FILE'])
+                storePassword props['MYAPP_UPLOAD_STORE_PASSWORD']
+                keyAlias props['MYAPP_UPLOAD_KEY_ALIAS']
+                keyPassword props['MYAPP_UPLOAD_KEY_PASSWORD']
             }
         }
     }
