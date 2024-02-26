@@ -103,7 +103,7 @@ export default function DestinationPicker({ navigation }) {
             let cachedData = await Cache.get(url);
 
             if (cachedData) {
-                console.warn('fetchTrainStationsMap: couldn\'t query, falling back to cached response.');
+                console.warn('fetchTrainStationsMap: couldn\'t query, falling back to cached response. - ', exception);
 
                 setNetworkErrorDetected(true);
 
@@ -136,7 +136,7 @@ export default function DestinationPicker({ navigation }) {
             let cachedData = await Cache.get(url);
 
             if (cachedData) {
-                console.warn('fetchHolidaysList: couldn\'t query, falling back to cached response.');
+                console.warn('fetchHolidaysList: couldn\'t query, falling back to cached response. - ', exception);
 
                 setNetworkErrorDetected(true);
 
@@ -182,7 +182,7 @@ export default function DestinationPicker({ navigation }) {
                 let cachedData = await Cache.get(url);
 
                 if (cachedData) {
-                    console.warn('fetchAvailabilityOptions: couldn\'t query, falling back to cached response.');
+                    console.warn('fetchAvailabilityOptions: couldn\'t query, falling back to cached response. - ', exception);
     
                     setNetworkErrorDetected(true);
     
