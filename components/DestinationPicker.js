@@ -71,6 +71,12 @@ export default function DestinationPicker({ navigation }) {
             let newTrainStationsMap = [];
 
             json.elements.forEach(station => {
+                if (typeof(station.tags.name) == 'undefined') {
+                    console.warn('UTN:', station);
+
+                    return;
+                }
+
                 if (
                     (
                         typeof(station.lat) == 'undefined'
