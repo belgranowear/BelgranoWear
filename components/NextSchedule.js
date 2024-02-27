@@ -19,8 +19,9 @@ import duration from 'dayjs/plugin/duration';
 
 dayjs.extend(duration);
 
-import Cache           from './Cache';
-import Lang            from './Lang';
+import Cache    from '../includes/Cache';
+import Lang     from '../includes/Lang';
+
 import OfflineModeHint from './OfflineModeHint';
 
 export default function NextSchedule({ navigation, route }) {

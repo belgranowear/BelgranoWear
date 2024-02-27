@@ -20,9 +20,10 @@ import * as Location from 'expo-location';
 
 import { getPreciseDistance } from 'geolib';
 
-import Lang            from './Lang';
-import Cache           from './Cache';
 import OfflineModeHint from './OfflineModeHint';
+
+import Cache           from '../includes/Cache';
+import Lang            from '../includes/Lang';
 
 const Item = ({item, onPress, backgroundColor, textColor}) => (
     <TouchableOpacity onPress={onPress} style={[styles.item, {backgroundColor}]}>

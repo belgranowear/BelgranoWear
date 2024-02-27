@@ -1,6 +1,6 @@
 import { SafeAreaView, StyleSheet, Text, View, Button } from 'react-native';
 
-import Lang from './Lang';
+import Lang from '../includes/Lang';
 
 const Separator = () => <View style={styles.separator} />;
 
