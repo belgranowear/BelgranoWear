@@ -20,6 +20,8 @@ import * as Location from 'expo-location';
 
 import { getPreciseDistance } from 'geolib';
 
+import { MD5 } from 'crypto-js';
+
 import OfflineModeHint from './OfflineModeHint';
 
 import Cache           from '../includes/Cache';
@@ -57,10 +59,103 @@ export default function DestinationPicker({ navigation }) {
         BackHandler.exitApp();
     }
 
+    const verifyCachedResources = async () => {
+        setCurrentOperation( Lang.t('verifyCachedResourcesMessage') + '…' );
+
+        let cacheKeys     = await Cache.keys(),
+            unmatchedKeys = 0;
+
+        console.debug('Cache keys:', cacheKeys);
+
+        try {
+            while (cacheKeys.length > 0) {
+                let url = cacheKeys[ Object.keys(cacheKeys)[0] ];
+
+                let remoteChecksumURL = (
+                    process.env.REMOTE_BASE_URL + '/' +
+                    (new URL(url)).pathname
+                        .replace(new RegExp('^\/'),    '')
+                        .replace(new RegExp('.json$'), '') + '_sum'
+                ),  remoteChecksum = await (await fetch(remoteChecksumURL)).text();
+
+                let file     = await Cache.get(url),
+                    checksum = MD5( JSON.stringify(file) ).toString();
+
+                console.debug('verifyCachedResources: remoteChecksumURL:', remoteChecksumURL, remoteChecksum);
+
+                if (checksum !== remoteChecksum) {
+                    console.info(`verifyCachedResources: new version detected for "${url}", redownloading... - ${checksum} !== ${remoteChecksum} - ${JSON.stringify(file)}`);
+
+                    try {
+                        let prefetchResponse = await fetch(url),
+                            prefetchJSON     = await prefetchResponse.json();
+
+                        console.debug(`verifyCachedResources: prefetch succeeded for "${url}"! - ${JSON.stringify(prefetchJSON)}`);
+
+                        Cache.set(url, prefetchJSON);
+                    } catch (prefetchException) {
+                        console.warn(`verifyCachedResources: prefetch failed for "${url}":`, prefetchException);
+                    }
+
+                    unmatchedKeys++;
+
+                    if (unmatchedKeys >= process.env.CACHE_MAX_UNMATCHED_KEYS_FOR_CLEAR) {
+                        console.debug(`verifyCachedResources: more than ${process.env.CACHE_MAX_UNMATCHED_KEYS_FOR_CLEAR} cache keys didn't match with the remote server, clearing everything and starting over!`);
+
+                        await Cache.clear();
+
+                        return;
+                    }
+                } else {
+                    console.debug(`verifyCachedResources: the remote checksum for "${url}" matches with out local version! - ${checksum} === ${remoteChecksum} - ${JSON.stringify(file)}`);
+                }
+
+                cacheKeys.shift();
+            }
+        } catch (exception) {
+            console.warn('verifyCachedResources: couldn\'t query:', exception);
+        }
+    }
+
+    const loadTrainStationsMap = json => {
+        let newTrainStationsMap = [];
+
+        json.elements.forEach(station => {
+            if (typeof(station.tags.name) == 'undefined') {
+                console.warn('UTN:', station);
+
+                return;
+            }
+
+            if (
+                (
+                    typeof(station.lat) == 'undefined'
+                    ||
+                    typeof(station.lon) == 'undefined'
+                )
+                &&
+                typeof(station.center) == 'undefined'
+            ) {
+                console.warn('NLD:', station);
+
+                return;
+            }
+
+            newTrainStationsMap.push({
+                name:      station.tags.name.replace(/ \(.*'/, ''), // remove additional info hints
+                shortName: station.tags.short_name,
+                latitude:  (station.lat ?? station.center.lat),
+                longitude: (station.lon ?? station.center.lon)
+            });
+        });
+
+        setTrainStationsMap(newTrainStationsMap);
+
+        console.debug('newTrainStationsMap:', newTrainStationsMap);
+    };
+
     const fetchTrainStationsMap = async () => {
-        setCurrentOperation(
-            Lang.t('fetchingTrainStationsMapMessage') + '…'
-        );
+        setCurrentOperation( Lang.t('fetchingTrainStationsMapMessage') + '…' );
 
         let url = process.env.REMOTE_BASE_URL + '/train_stations.json';
 
@@ -69,42 +164,9 @@ export default function DestinationPicker({ navigation }) {
           .then(json     => {
             console.debug('fetchTrainStationsMap:', json);
 
-            let newTrainStationsMap = [];
+            loadTrainStationsMap(json);
 
-            json.elements.forEach(station => {
-                if (typeof(station.tags.name) == 'undefined') {
-                    console.warn('UTN:', station);
-
-                    return;
-                }
-
-                if (
-                    (
-                        typeof(station.lat) == 'undefined'
-                        ||
-                        typeof(station.lon) == 'undefined'
-                    )
-                    &&
-                    typeof(station.center) == 'undefined'
-                ) {
-                    console.warn('NLD:', station);
-
-                    return;
-                }
-
-                newTrainStationsMap.push({
-                    name:      station.tags.name.replace(/ \(.*'/, ''), // remove additional info hints
-                    shortName: station.tags.short_name,
-                    latitude:  (station.lat ?? station.center.lat),
-                    longitude: (station.lon ?? station.center.lon)
-                });
-            });
-
-            setTrainStationsMap(newTrainStationsMap);
-
-            console.debug('newTrainStationsMap:', newTrainStationsMap);
-
-            Cache.set(url, newTrainStationsMap);
+            Cache.set(url, json);
           })
           .catch(async exception => {
             let cachedData = await Cache.get(url);
@@ -114,7 +176,7 @@ export default function DestinationPicker({ navigation }) {
 
                 setNetworkErrorDetected(true);
 
-                setTrainStationsMap(cachedData);
+                loadTrainStationsMap(cachedData);
             } else {
                 console.error('fetchTrainStationsMap: couldn\'t query:', exception);
 
@@ -124,9 +186,7 @@ export default function DestinationPicker({ navigation }) {
     }
 
     const fetchHolidaysList = async () => {
-        setCurrentOperation(
-            Lang.t('fetchingHolidaysListMessage') + '…'
-        );
+        setCurrentOperation( Lang.t('fetchingHolidaysListMessage') + '…' );
 
         let url = process.env.REMOTE_BASE_URL + `/holidays_${(new Date().getFullYear())}.json`;
 
@@ -156,10 +216,23 @@ export default function DestinationPicker({ navigation }) {
           });
     }
 
+    const loadAvailabilityOptions = json => {
+        // First null element resolves to a UI user action hint
+        let newDestinationsList = [{ id: null }];
+
+        Object.keys(json.destination).forEach(key => {
+            newDestinationsList.push({
+                id:    key,
+                title: json.destination[key]
+            });
+        });
+
+        setSegmentsList(json.scheduleSegment);
+        setDestinationsList(newDestinationsList);
+    }
+
     const fetchAvailabilityOptions = async () => {
-        setCurrentOperation(
-            Lang.t('fetchingAvailabilityOptionsMessage') + '…'
-        );
+        setCurrentOperation( Lang.t('fetchingAvailabilityOptionsMessage') + '…' );
 
         let url = process.env.REMOTE_BASE_URL + '/availability_options.json';
 
@@ -168,20 +241,9 @@ export default function DestinationPicker({ navigation }) {
             .then(json     => {
                 console.debug('fetchAvailabilityOptions:', json);
 
-                // First null element resolves to a UI user action hint
-                let newDestinationsList = [{ id: null }];
+                loadAvailabilityOptions(json);
 
-                Object.keys(json.destination).forEach(key => {
-                    newDestinationsList.push({
-                        id:    key,
-                        title: json.destination[key]
-                    });
-                });
-
-                setSegmentsList(json.scheduleSegment);
-                setDestinationsList(newDestinationsList);
-
-                Cache.set(url, newDestinationsList);
+                Cache.set(url, json);
             })
             .catch(async exception => {
                 console.warn(exception);
@@ -193,7 +255,7 @@ export default function DestinationPicker({ navigation }) {
     
                     setNetworkErrorDetected(true);
     
-                    setHolidaysList(cachedData);
+                    loadAvailabilityOptions(cachedData);
                 } else {
                     console.error('fetchAvailabilityOptions: couldn\'t query:', exception);
 
@@ -219,9 +281,7 @@ export default function DestinationPicker({ navigation }) {
     };
 
     const detectOriginStation = async () => {
-        setCurrentOperation(
-            Lang.t('detectingOriginStationMessage') + '…'
-        );
+        setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
 
         let { status } = await Location.requestForegroundPermissionsAsync();
 
@@ -363,6 +423,7 @@ export default function DestinationPicker({ navigation }) {
     // Runs once during the startup
     useEffect(() => {
         const fetchData = async () => {
+            await verifyCachedResources();
             await fetchTrainStationsMap();
             await fetchHolidaysList();
             await fetchAvailabilityOptions();

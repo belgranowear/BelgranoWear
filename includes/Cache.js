@@ -23,7 +23,13 @@ const Cache = {
         }
 
         return null;
-    }
+    },
+
+    has: async key => await AsyncStorage.getItem(key) !== null,
+
+    keys: async () => await AsyncStorage.getAllKeys(),
+
+    clear: async () => await AsyncStorage.clear()
 };
 
 export default Cache;

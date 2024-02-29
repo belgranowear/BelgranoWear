@@ -41,6 +41,7 @@ Lang.translations   = {
         fetchAvailabilityOptionsError: 'A connection error has occured while trying to fetch the availability options, please try again later.',
         getTargetSegmentError: 'Couldn\'t detect a compatible schedule segment for the current date, please try again later.',
         fetchNextTripTimeError: 'A connection error has occured while trying to fetch the next trip time, please try again later.',
+        verifyCachedResourcesMessage: 'Checking for updates'
     },
     es: {
         to: 'a',
@@ -76,6 +77,7 @@ Lang.translations   = {
         fetchAvailabilityOptionsError: 'Ocurrió un error de conexión al intentar obtener la lista de opciones de disponibilidad, por favor, volvé a intentarlo más tarde.',
         getTargetSegmentError: 'No se pudo detectar un segmento de tarifa compatible con la fecha actual, por favor, volvé a intentarlo más tarde.',
         fetchNextTripTimeError: 'Ocurrió un error de conexión al intentar obtener la hora del próximo viaje, por favor, volvé a intentarlo más tarde.',
+        verifyCachedResourcesMessage: 'Comprobando actualizaciones'
     }
 }
 
