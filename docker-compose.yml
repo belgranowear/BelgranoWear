@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      - ACTION=${ACTION}
+      - MODE=${MODE}
+      - RELEASE_KEYSTORE=${RELEASE_KEYSTORE}
+      - RELEASE_KEYSTORE_PASSPHRASE=${RELEASE_KEYSTORE_PASSPHRASE}
+      - GRADLE_PROPERTIES=${GRADLE_PROPERTIES}
+    working_dir: /app
