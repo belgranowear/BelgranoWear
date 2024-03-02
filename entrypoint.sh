@@ -98,6 +98,8 @@ done;
 echo '=> Setting WearOS releases...';
 sed -i'' 's/<!-- WEAROS_USES_FEATURE_PLACEHOLDER -->/<uses-feature android:name="android.hardware.type.watch" \/>/' android/app/src/main/AndroidManifest.xml;
 sed -i'' 's/<!-- WEAROS_META_PLACEHOLDER -->/<meta-data android:name="com.google.android.wearable.standalone" android:value="true"\/>/' android/app/src/main/AndroidManifest.xml;
+VERSION_CODE=$( cat android/app/build.gradle | grep versionCode | sed 's/[^0-9]//g' );
+sed -i'' 's/versionCode .*/versionCode '$(( $VERSION_CODE + 1))'/' android/app/build.gradle;
 
 echo '=> Compilling debug AAB bundle and APK...';
 npx react-native build-android --mode=debug;
