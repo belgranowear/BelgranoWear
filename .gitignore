@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+yarn.lock
 
 # Expo
 .expo/
@@ -33,3 +34,9 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# build artifacts
+artifacts
+
+# WearOS temporary files
+wearos

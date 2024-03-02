@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
 # Install OS dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl git unzip &&\
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl git unzip rsync &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/*
 
