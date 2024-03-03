@@ -10,3 +10,5 @@ services:
       - RELEASE_KEYSTORE_PASSPHRASE=${RELEASE_KEYSTORE_PASSPHRASE}
       - GRADLE_PROPERTIES=${GRADLE_PROPERTIES}
     working_dir: /app
+    ports:
+      - 8081:8081
