@@ -26,6 +26,12 @@ if [[ -z $MODE ]] || [[ "$MODE" == '' ]]; then
     MODE='publish';
 fi;
 
+if [[ "$MODE" == 'publish' ]] && [[ "$GITHUB_TOKEN" == '' ]]; then
+    echo 'Cannot publish releases without a GitHub token. Provide a token or set MODE=test instead. - GITHUB_TOKEN';
+
+    exit 1;
+fi;
+
 echo 'Starting operation with ACTION = '"$ACTION"' and MODE = '"$MODE"'...';
 echo '';
 
