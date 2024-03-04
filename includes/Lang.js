@@ -1,10 +1,22 @@
 import * as Localization  from 'expo-localization';
 import { I18n }           from 'i18n-js';
 
-const Lang = new I18n();
+const Lang    = new I18n();
+const locales = Localization.getLocales();
 
-Lang.defaultLocale  = 'en';
-Lang.locale         = Localization.getLocales()[0].languageCode;
+Lang.defaultLocale = 'en';
+Lang.locale        = Lang.defaultLocale;
+
+if (
+    locales.length > 0
+    &&
+    typeof(locales[0]) != 'undefined'
+) {
+    Lang.locale = locales[0].languageCode;
+} else {
+    console.warn(`No locales detected, falling back to ${Lang.defaultLocale}.`);
+}
+
 Lang.enableFallback = true;
 Lang.translations   = {
     en: {
