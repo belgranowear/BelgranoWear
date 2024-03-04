@@ -15,7 +15,7 @@ export WEAROS_TEMP_PATH=$(pwd)/wearos;
 set -e; # quit on error
 
 if [[ "$ACTION" == 'run' ]]; then
-    npx expo start;
+    npx expo start --clear;
 
     exit $?;
 else
