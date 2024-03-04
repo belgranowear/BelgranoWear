@@ -14,6 +14,12 @@ export WEAROS_TEMP_PATH=$(pwd)/wearos;
 
 set -e; # quit on error
 
+echo '=> Installing Yarn dependencies...';
+yarn;
+
+echo '=> Installing packages with NPM...';
+npm i;
+
 if [[ "$ACTION" == 'run' ]]; then
     npx expo start --clear;
 
@@ -68,12 +74,6 @@ mkdir -p "$ARTIFACTS_PATH";
 
 echo '=> Creating WearOS temporary path directory as '"$WEAROS_TEMP_PATH"'...';
 mkdir -p "$WEAROS_TEMP_PATH";
-
-echo '=> Installing Yarn dependencies...';
-yarn;
-
-echo '=> Installing packages with NPM...';
-npm i;
 
 if [[ "$ENABLE_RELEASE_BUILDS" == 'true' ]]; then
     echo '=> Storing temporary '"$HOME"'/.gradle/gradle.properties file...';
