@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import {
   BackHandler,
   ActivityIndicator,
+  Dimensions,
   SafeAreaView,
   FlatList,
   StyleSheet,
@@ -27,13 +28,24 @@ import OfflineModeHint from './OfflineModeHint';
 import Cache           from '../includes/Cache';
 import Lang            from '../includes/Lang';
 
-const Item = ({item, onPress, backgroundColor, textColor}) => (
-    <TouchableOpacity onPress={onPress} style={[styles.item, {backgroundColor}]}>
+const Item = ({item, onPress, backgroundColor, textColor, hasLargeDisplay}) => (
+    <TouchableOpacity
+        onPress={onPress}
+        style={[
+            (
+                hasLargeDisplay
+                    ? styles.itemLarge
+                    : styles.item
+            ),
+            {backgroundColor}
+        ]}
+    >
       <Text style={[styles.title, {color: textColor}]}>{item.title}</Text>
     </TouchableOpacity>
 );
 
 export default function DestinationPicker({ navigation }) {
+    const [ hasLargeDisplay,      setHasLargeDisplay      ] = useState();
     const [ originStation,        setOriginStation        ] = useState();
     const [ trainStationsMap,     setTrainStationsMap     ] = useState();
     const [ currentOperation,     setCurrentOperation     ] = useState();
@@ -217,8 +229,7 @@ export default function DestinationPicker({ navigation }) {
     }
 
     const loadAvailabilityOptions = json => {
-        // First null element resolves to a UI user action hint
-        let newDestinationsList = [{ id: null }];
+        let newDestinationsList = [];
 
         Object.keys(json.destination).forEach(key => {
             newDestinationsList.push({
@@ -226,6 +237,8 @@ export default function DestinationPicker({ navigation }) {
                 title: json.destination[key]
             });
         });
+
+        console.debug('newDestinationsList:', newDestinationsList);
 
         setSegmentsList(json.scheduleSegment);
         setDestinationsList(newDestinationsList);
@@ -383,22 +396,6 @@ export default function DestinationPicker({ navigation }) {
       const backgroundColor = item.id === selectedId ? '#7f3026' : '#be4936';
       const color           = 'white';
 
-      if (item.id === null) {
-        return (
-            <Text style={{
-                color: 'white',
-                paddingTop: 20,
-                paddingBottom: 8,
-                textAlign: 'center',
-                fontSize: 16
-            }}>
-                { Lang.t('selectDestinationHint') }
-            </Text>
-        );
-      }
-
-      if (item.id == originStation.id) { return; }
-
       return (
         <Item
           item={item}
@@ -416,12 +413,25 @@ export default function DestinationPicker({ navigation }) {
           }}
           backgroundColor={backgroundColor}
           textColor={color}
+          hasLargeDisplay={hasLargeDisplay}
         />
       );
     };
 
     // Runs once during the startup
     useEffect(() => {
+        setHasLargeDisplay(
+            Dimensions.get('window').width >= process.env.SCREEN_SMALL_WIDTH_PX
+        );
+
+        Dimensions.addEventListener('change', ({window}) => {
+            console.log('window:', window);
+
+            setHasLargeDisplay(
+                window.width >= process.env.SCREEN_SMALL_WIDTH_PX
+            );
+        });
+
         const fetchData = async () => {
             await verifyCachedResources();
             await fetchTrainStationsMap();
@@ -431,6 +441,16 @@ export default function DestinationPicker({ navigation }) {
 
         fetchData();
     }, []);
+
+    // Runs when the origin station is available
+    useEffect(() => {
+        if (typeof(originStation) == 'undefined') { return; }
+
+        // Remove the origin station
+        setDestinationsList(
+            destinationsList.filter(item => (item.id != originStation.id))
+        );
+    }, [ originStation ]);
 
     // Runs when the train stations map gets populated
     useEffect(() => {
@@ -464,12 +484,36 @@ export default function DestinationPicker({ navigation }) {
 
                 {
                     loadFinished
-                        ? <FlatList
-                            data={destinationsList}
-                            renderItem={renderItem}
-                            keyExtractor={item => item.id}
-                            extraData={selectedId}
-                        />
+                        ? <View style={{ width: '100%' }}>
+                            <Text style={{
+                                    color: 'white',
+                                    paddingTop: 20,
+                                    paddingBottom: 8,
+                                    textAlign: 'center',
+                                    fontSize: 16
+                                }}>
+                                    { Lang.t('selectDestinationHint') }
+                            </Text>
+                            {
+                                <FlatList
+                                    key={hasLargeDisplay}
+                                    data={destinationsList}
+                                    renderItem={renderItem}
+                                    keyExtractor={item => item.id}
+                                    extraData={selectedId}
+                                    numColumns={
+                                        hasLargeDisplay
+                                            ? 2
+                                            : 1
+                                    }
+                                    columnWrapperStyle={
+                                        hasLargeDisplay
+                                            ? { gap: 6 }
+                                            : undefined
+                                    }
+                                />
+                            }
+                          </View>
                         : <View>
                             <ActivityIndicator size="12" color="#be4936" />
                             <Text style={{
@@ -499,6 +543,11 @@ const styles = StyleSheet.create({
       marginTop: (StatusBar.currentHeight || 0),
       marginVertical: 0,
       paddingVertical: 0
+    },
+    itemLarge: {
+      width: '50%',
+      paddingVertical: 8,
+      marginBottom: 6
     },
     item: {
       width: '100%',
