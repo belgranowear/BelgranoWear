@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 
 import {
   ActivityIndicator,
+  AppState,
   SafeAreaView,
   StyleSheet,
   Platform,
@@ -263,6 +264,14 @@ export default function NextSchedule({ navigation, route }) {
       console.debug('params:', route.params);
 
       fetchNextTripTime();
+
+      AppState.addEventListener('change', nextAppState => {
+        if (nextAppState !== 'active') { // disable vibration if in background mode
+          console.debug(`The app has just left the "active" state and is now marked "${nextAppState}", disabling repeating vibration pattern...`);
+
+          Vibration.cancel();
+        }
+      });
     }, []);
 
     // Detects changes in nextTripTime, if it's under zero, tries with the next day
