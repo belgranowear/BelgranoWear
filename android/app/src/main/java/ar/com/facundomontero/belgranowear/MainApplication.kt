@@ -2,6 +2,8 @@ package ar.com.facundomontero.belgranowear
 
 import android.app.Application
 import android.content.res.Configuration
+import android.os.Build
+
 import androidx.annotation.NonNull
 
 import com.facebook.react.PackageList
@@ -53,7 +55,7 @@ class MainApplication : Application(), ReactApplication {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
     }
-    if (BuildConfig.DEBUG) {
+    if (BuildConfig.DEBUG && Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP_MR1) {
       ReactNativeFlipper.initializeFlipper(this, reactNativeHost.reactInstanceManager)
     }
     ApplicationLifecycleDispatcher.onApplicationCreate(this)
