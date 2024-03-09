@@ -3,7 +3,7 @@
     "name": "BelgranoWear",
     "slug": "BelgranoWear",
     "version": "1.1.4",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "assetBundlePatterns": [
