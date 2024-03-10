@@ -348,7 +348,7 @@ export default function NextSchedule({ navigation, route }) {
                     ? <Text style={styles.centeredText}>
                         {Lang.t('noTripsFoundMessage')}
                       </Text>
-                    : <View>
+                    : <View style={styles.topPaddedView}>
                         <Text style={styles.centeredText}>
                           <Text style={styles.centeredBoldText}>{route.params.origin.title}</Text>
                         </Text>
@@ -383,6 +383,9 @@ export default function NextSchedule({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
+  topPaddedView: {
+    marginTop: (Platform.constants.uiMode == 'watch' ? -24 : 0) // avoid layout clipping on rounded watches
+  },
   container: {
     flex: 1,
     width: '100%',
@@ -391,7 +394,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginTop: (Platform.constants.uiMode == 'watch' ? -24 : 0), // avoid layout clipping on rounded watches
     paddingVertical: 0
   },
   title: { textAlign: 'center' },
