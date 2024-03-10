@@ -293,8 +293,16 @@ export default function DestinationPicker({ navigation }) {
         });
     };
 
-    const detectOriginStation = async () => {
-        setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
+    const areLocationPermissionsGranted = async () => {
+        if (Platform.OS === 'android') {
+            console.debug('requestForegroundPermissionsAsync: Platform.Version:', Platform.Version);
+
+            if (Platform.Version < 23) { // Marshmallow
+                console.debug(`requestForegroundPermissionsAsync: the Android SDK version is lower than 23 (version ${Platform.Version} detected), skipping location permission request...`);
+
+                return true;
+            }
+        }
 
         let { status } = await Location.requestForegroundPermissionsAsync();
 
@@ -303,8 +311,16 @@ export default function DestinationPicker({ navigation }) {
         if (status !== 'granted') {
           crash( Lang.t('locationAccessDeniedMessage') );
 
-          return;
+          return false;
         }
+
+        return true;
+    };
+
+    const detectOriginStation = async () => {
+        setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
+
+        if (!areLocationPermissionsGranted()) { return; }
 
         let location;
   

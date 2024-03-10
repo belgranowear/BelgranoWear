@@ -5,7 +5,7 @@ This repository is the frontend of the static information provisioning backend l
 **BelgranoWear** is an application that lets you travel through the **Belgrano Norte** network (maintained by **Ferrovias**).
 
 ## System requirements
-- Android 6.0 or greater
+- Android 5.1 or greater
 - 32 MB of free storage space
 - An internet connection
 
