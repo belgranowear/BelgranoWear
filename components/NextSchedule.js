@@ -32,6 +32,7 @@ export default function NextSchedule({ navigation, route }) {
     const [ alternativeNextTripTime, setAlternativeNextTripTime ] = useState();
     const [ shouldTryNextDay,        setShouldTryNextDay        ] = useState();
     const [ networkErrorDetected,    setNetworkErrorDetected    ] = useState();
+    const [ currentOperation,        setCurrentOperation        ] = useState();
 
     const crash = message => { setCrashMessage(message); };
 
@@ -188,6 +189,8 @@ export default function NextSchedule({ navigation, route }) {
     };
 
     const processScheduleOptions = (date, options) => {
+      setCurrentOperation( Lang.t('processingScheduleMessage') + '…' );
+
       let differenceMilliseconds;
 
       for (let index = 0; index < options.length; index++) {
@@ -224,6 +227,8 @@ export default function NextSchedule({ navigation, route }) {
     };
 
     const fetchNextTripTime = async (date = dayjs()) => {
+      setCurrentOperation( Lang.t('fetchingNextTripTimeMessage') + '…' );
+
       let segment = getTargetSegment(date);
 
       if (!segment) { return; }
@@ -332,7 +337,12 @@ export default function NextSchedule({ navigation, route }) {
               typeof(nextTripTime)         == 'undefined'
               ||
               typeof(remainingTimeMessage) == 'undefined'
-                ? <ActivityIndicator size="12" color="#be4936" />
+                ? <View>
+                    <ActivityIndicator size="12" color="#be4936" />
+                    <Text style={{ color: 'white', textAlign: 'center' }}>
+                      {currentOperation}
+                    </Text>
+                  </View>
                 : (
                   nextTripTime.diff() < 0
                     ? <Text style={styles.centeredText}>
