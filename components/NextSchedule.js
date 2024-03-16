@@ -1,6 +1,6 @@
 import normalizeSpecialCharacters from 'specialtonormal';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -10,8 +10,11 @@ import {
   Platform,
   Text,
   View,
-  Vibration
+  Vibration,
+  Animated
 } from 'react-native';
+
+import IDomParser from 'advanced-html-parser';
 
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -33,8 +36,221 @@ export default function NextSchedule({ navigation, route }) {
     const [ shouldTryNextDay,        setShouldTryNextDay        ] = useState();
     const [ networkErrorDetected,    setNetworkErrorDetected    ] = useState();
     const [ currentOperation,        setCurrentOperation        ] = useState();
+    const [ isNextTripFadedIn,       setIsNextTripFadedIn       ] = useState(false);
+    const [ shouldLoopAnimation,     setShouldLoopAnimation     ] = useState(true);
+
+    const nextTripViewOpacity = useRef(new Animated.Value(0)).current;
+
+    const animateNextTripTimeOpacity = ({ toValue, onFinished = () => {} }) => {
+      Animated.timing(nextTripViewOpacity, {
+        toValue:  toValue,
+        duration: 500,
+        useNativeDriver: true
+      }).start((finished) => {
+        if (finished) {
+          console.debug(`animateNextTripTimeOpacity: finished = ${JSON.stringify(toValue)}, nextTripViewOpacity = ${JSON.stringify(nextTripViewOpacity)}, shouldLoopAnimation = ${JSON.stringify(shouldLoopAnimation)}`);
+
+          onFinished();
+        }
+      });
+    };
+
+    const fadeInNextTripTime = () => {
+      animateNextTripTimeOpacity({
+        toValue:    1,
+        onFinished: () => { setIsNextTripFadedIn(true); }
+      });
+    };
+
+    const fadeOutNextTripTime = () => {
+      animateNextTripTimeOpacity({
+        toValue:    0,
+        onFinished: () => { setIsNextTripFadedIn(false); }
+      });
+    };
 
     const crash = message => { setCrashMessage(message); };
+
+    const fetchHFRemainingTimeByStationId = async (originId, isGoingToTerminal) => {
+      let url  = process.env.HIGH_ACCURACY_ETA_URL + '/estaciones.asp',
+          body = new URLSearchParams({ idEst: originId }).toString();
+
+      console.debug(`fetchHFRemainingTimeByStationId: url = ${url}, body = ${body}`);
+
+      await fetch(url, {
+        method:   'POST',
+        body:     body,
+        headers:  { 'Content-Type': 'application/x-www-form-urlencoded' }
+      }).then(      response => response.text())
+        .then(async html     => {
+          console.debug('fetchHFRemainingTimeByStationId:', html);
+
+          const dom   = IDomParser.parse(html),
+                body  = dom.querySelector('body');
+
+          console.debug('isGoingToTerminal:', isGoingToTerminal);
+
+          let tableCount =  0,
+              tableIndex = -1,
+              table      = null;
+
+          for (index in body.children) {
+            let child = body.children[index];
+
+            console.debug('child.tagName:', child.tagName);
+
+            if (!child.tagName) { continue; }
+
+            if (
+              child.tagName.toLowerCase() == 'table'
+              &&
+              child.outerHTML.trim().length > 0
+            ) {
+              tableCount++;
+
+              console.debug('child:', child.outerHTML);
+              console.debug(`child.outerHTML: "${child.outerHTML}"`);
+            }
+          }
+
+          console.log('tableCount:', tableCount);
+
+          for (let index = 0; index < body.children.length; index++) {
+            let child = body.children[index];
+
+            if (!child.tagName) { continue; }
+
+            if (
+              child.tagName.toLowerCase() == 'table'
+              &&
+              child.outerHTML.trim().length > 0
+            ) {
+              table = child;
+
+              tableIndex++;
+            }
+
+            if (table && !isGoingToTerminal) { break; }
+          }
+
+          if (table) {
+            console.debug('table:',      table.outerHTML);
+            console.debug('tableIndex:', tableIndex);
+
+            let remainingMinutes = table.querySelector('.tdflecha').innerText().replaceAll(
+              new RegExp('[^0-9]', 'g'),  // searchValue
+              ''                          // replaceValue
+            );
+
+            console.debug('[string] remainingMinutes:', remainingMinutes);
+
+            if (remainingMinutes.trim().length > 0) {
+              remainingMinutes = parseInt(remainingMinutes);
+
+              console.debug('[int] remainingMinutes:', remainingMinutes);
+
+              const newNextTripTime = dayjs().add(remainingMinutes, 'minutes');
+
+              setNextTripTime( newNextTripTime );
+
+              console.debug('newNextTripTime:', newNextTripTime);
+            } else {
+              console.warn('Couldn\'t convert remainingMinutes to integer.');
+            }
+          }
+        });
+    };
+
+    const fetchHighAccuracyRemainingTime = (originName, destinationName) => {
+      originName      = originName.toLowerCase();
+      destinationName = destinationName.toLowerCase();
+
+      fetch(process.env.HIGH_ACCURACY_ETA_URL)
+        .then(      response => response.text())
+        .then(async html     => {
+          console.debug('fetchHighAccuracyRemainingTime: html:', html);
+
+          const dom = IDomParser.parse(html);
+
+          let mainTables       = dom.querySelectorAll('#table_main'),
+              liveStationsList = [],
+              originIndex      = null,
+              destinationIndex = null,
+              currentRowIndex  = 0;
+
+          let mainTable        = mainTables[ mainTables.length - 1 ],
+              expectedTdCount  = mainTable.querySelector('tr').querySelectorAll('td').length;
+
+          while (currentRowIndex < expectedTdCount) {
+            mainTable.querySelectorAll('tr').forEach(tr => {
+              let td = tr.querySelectorAll('td')[currentRowIndex];
+
+              let id = td.getAttribute('onclick').replace(new RegExp('[^0-9]', 'g'), '').trim();
+
+              if (id.length > 0) {
+                liveStationsList.push({
+                  id:   parseInt(id),
+                  name: td.innerText()
+                });
+              }
+
+              console.debug('td:',              td.outerHTML);
+              console.debug('currentRowIndex:', currentRowIndex);
+            });
+
+            currentRowIndex++;
+          }
+
+          console.debug(liveStationsList);
+
+          liveStationsList.forEach((station, index) => {
+            let liveNameWord = normalizeSpecialCharacters(
+              station.name
+                .replaceAll(new RegExp('.* ', 'g'), '')
+                .toLowerCase()
+            );
+
+            console.debug(`@${index} - (${station.id}) "${liveNameWord}"`);
+
+            if (
+              destinationName.indexOf(' ' + liveNameWord) > -1
+              ||
+              destinationName === liveNameWord
+            ) {
+              destinationIndex = index;
+            }
+
+            if (
+              originName.indexOf(' ' + liveNameWord) > -1
+              ||
+              originName === liveNameWord
+            ) {
+              originIndex = index;
+            }
+          });
+
+          if (originIndex === null || destinationIndex === null) {
+            console.warn(`fetchHighAccuracyRemainingTime: originId = "${originId}", destinationId = "${destinationId}"`);
+
+            return;
+          }
+
+          let isGoingToTerminal = destinationIndex < originIndex; // terminal = Retiro
+
+          console.debug(`@${originIndex} origin:`,            liveStationsList[originIndex]);
+          console.debug(`@${destinationIndex} destination:`,  liveStationsList[destinationIndex]);
+          console.debug('isGoingToTerminal:',                 isGoingToTerminal);
+
+          await fetchHFRemainingTimeByStationId(
+            liveStationsList[originIndex].id, // originId
+            isGoingToTerminal                 // isGoingToTerminal
+          );
+        })
+        .catch(exception => {
+          console.warn('Couldn\'t fetch live tracking data:', exception);
+        })
+        .finally(() => { setShouldLoopAnimation(false); });
+    };
 
     const buildRemainingTimeMessage = () => {
       let remainingTime = dayjs.duration( nextTripTime.diff() ); // difference between now and nextTripTime
@@ -188,7 +404,7 @@ export default function NextSchedule({ navigation, route }) {
       return targetSegment;
     };
 
-    const processScheduleOptions = (date, options) => {
+    const processScheduleOptions = (date, options, originName, destinationName) => {
       setCurrentOperation( Lang.t('processingScheduleMessage') + '…' );
 
       let differenceMilliseconds;
@@ -202,8 +418,6 @@ export default function NextSchedule({ navigation, route }) {
 
         differenceMilliseconds = comparedDate.diff(date);
 
-        // console.debug('TST:', tripStartTime, ':', tripEndTime);
-        // console.debug('TSP:', tripStartHour, ':', tripStartMinutes);
         console.debug('TDF:',   differenceMilliseconds);
         console.debug('TCMPA:', date.format());
         console.debug('TCMPB:', comparedDate.format());
@@ -217,6 +431,8 @@ export default function NextSchedule({ navigation, route }) {
             setAlternativeNextTripTime(options[index + 1][0]);
           }
 
+          fetchHighAccuracyRemainingTime(originName, destinationName);
+
           break;
         }
       }
@@ -226,7 +442,7 @@ export default function NextSchedule({ navigation, route }) {
       }
     };
 
-    const fetchNextTripTime = async (date = dayjs()) => {
+    const fetchNextTripTime = async (originName, destinationName, date = dayjs()) => {
       setCurrentOperation( Lang.t('fetchingNextTripTimeMessage') + '…' );
 
       let segment = getTargetSegment(date);
@@ -245,7 +461,7 @@ export default function NextSchedule({ navigation, route }) {
 
           Cache.set(compiledURL, json);
 
-          processScheduleOptions(date, json);
+          processScheduleOptions(date, json, originName, destinationName);
         })
         .catch(async exception => {
           let cachedData = await Cache.get(compiledURL);
@@ -255,7 +471,7 @@ export default function NextSchedule({ navigation, route }) {
 
             setNetworkErrorDetected(true);
 
-            processScheduleOptions(date, cachedData);
+            processScheduleOptions(date, cachedData, originName, destinationName);
           } else {
             console.error('fetchNextTripTime: couldn\t query:', exception);
 
@@ -268,7 +484,12 @@ export default function NextSchedule({ navigation, route }) {
     useEffect(() => {
       console.debug('params:', route.params);
 
-      fetchNextTripTime();
+      fetchNextTripTime(
+        route.params.origin.title,
+        route.params.destination.title
+      );
+
+      fadeInNextTripTime();
 
       AppState.addEventListener('change', nextAppState => {
         if (nextAppState !== 'active') { // disable vibration if in background mode
@@ -296,6 +517,19 @@ export default function NextSchedule({ navigation, route }) {
       }, 1000);
     }, [ nextTripTime, remainingTimeMessage ]);
 
+    // Detect next trip time fade completed
+    useEffect(() => {
+      if (!shouldLoopAnimation) { return; }
+
+      console.debug(`useEffect: isNextTripFadedIn: ${JSON.stringify(isNextTripFadedIn)}`);
+
+      if (isNextTripFadedIn) {
+        fadeOutNextTripTime();
+      } else {
+        fadeInNextTripTime();
+      }
+    }, [ isNextTripFadedIn ]);
+
     useEffect(() => {
       if (!shouldTryNextDay) { return; }
 
@@ -309,7 +543,11 @@ export default function NextSchedule({ navigation, route }) {
       date = date.minute(0);
       date = date.second(0);
 
-      fetchNextTripTime(date);
+      fetchNextTripTime(
+        route.params.origin.title,
+        route.params.destination.title,
+        date
+      );
     }, [ shouldTryNextDay ]);
 
     console.debug('Remaining MS:', (
@@ -361,9 +599,18 @@ export default function NextSchedule({ navigation, route }) {
                         <Text style={styles.centeredText}>
                           {Lang.t('nextTripScheduleForMessage')}
                         </Text>
-                        <Text style={styles.centeredLargeBoldText}>
-                          {nextTripTime.format('HH:mm')}
-                        </Text>
+                        <Animated.View
+                          style={{
+                            opacity:
+                              shouldLoopAnimation
+                                ? nextTripViewOpacity
+                                : 1
+                          }}
+                        >
+                          <Text style={styles.centeredLargeBoldText}>
+                            {nextTripTime.format('HH:mm')}
+                          </Text>
+                        </Animated.View>
                         <Text style={styles.centeredThinText}>
                           {remainingTimeMessage}
                         </Text>
@@ -378,6 +625,13 @@ export default function NextSchedule({ navigation, route }) {
                 )
           }
 
+          {
+            typeof(nextTripTime)         == 'undefined'
+            ||
+            typeof(remainingTimeMessage) == 'undefined' 
+              ? <View></View>
+              : <ActivityIndicator size={16} color="#fff" style={[ styles.haTimeLoader, (shouldLoopAnimation ? {} : { display: 'none' }) ]} />
+          }
         </SafeAreaView>
     );
 }
@@ -417,8 +671,19 @@ const styles = StyleSheet.create({
   },
   centeredThinText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '300',
     textAlign: 'center'
-  }
+  },
+  haTimeLoader: [
+    { position: 'absolute' },
+    (
+      Platform.constants.uiMode === 'watch'
+        ? { bottom: 4 }
+        : {
+          top:   16,
+          right: 16
+        }
+    )
+  ]
 });
