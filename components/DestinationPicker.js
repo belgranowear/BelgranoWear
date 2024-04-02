@@ -293,6 +293,26 @@ export default function DestinationPicker({ navigation }) {
         });
     };
 
+    const tryGetLastKnownPositionAsync = timeout => {
+        timeout = parseInt(timeout);
+
+        console.debug(`tryGetLastKnownPositionAsync: timeout = ${timeout}`);
+
+        return new Promise(async (resolve, reject) => {
+            setTimeout(() => {
+                reject(
+                    new Error(`Couldn\'t get GPS location after ${timeout / 1000} seconds.`)
+                )
+            }, timeout);
+
+            resolve(
+                await Location.getLastKnownPositionAsync({
+                    accuracy: Location.Accuracy.Low
+                })
+            );
+        });
+    };
+
     const areLocationPermissionsGranted = async () => {
         if (Platform.OS === 'android') {
             console.debug('requestForegroundPermissionsAsync: Platform.Version:', Platform.Version);
@@ -327,16 +347,14 @@ export default function DestinationPicker({ navigation }) {
         try {
             location = await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
 
-            console.debug('location:', location);
+            console.debug('tryGetCurrentPositionAsync: location:', location);
         } catch (exception) {
             console.warn('getCurrentPositionAsync() failed, retrying with getLastKnownPositionAsync()... - ', exception);
 
             try {
-                location = await Location.getLastKnownPositionAsync({
-                    accuracy: Location.Accuracy.Low
-                });
+                location = await tryGetLastKnownPositionAsync(process.env.GPS_FIX_TIMEOUT);
 
-                console.debug('location:', location);
+                console.debug('tryGetLastKnownPositionAsync: location:', location);
             } catch (exception) {
                 console.error('detectOriginStation:', exception);
 
