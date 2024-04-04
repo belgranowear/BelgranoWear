@@ -40,7 +40,12 @@ const Item = ({item, onPress, backgroundColor, textColor, hasLargeDisplay}) => (
             {backgroundColor}
         ]}
     >
-      <Text style={[styles.title, {color: textColor}]}>{item.title}</Text>
+      <Text
+        style={[ styles.title, {color: textColor} ]}
+        adjustsFontSizeToFit
+      >
+        {item.title}
+      </Text>
     </TouchableOpacity>
 );
 
@@ -519,13 +524,15 @@ export default function DestinationPicker({ navigation }) {
                 {
                     loadFinished
                         ? <View style={{ width: '100%' }}>
-                            <Text style={{
+                            <Text
+                                adjustsFontSizeToFit
+                                style={{
                                     color: 'white',
-                                    paddingTop: 20,
+                                    paddingTop: 16,
                                     paddingBottom: 8,
                                     textAlign: 'center',
-                                    fontSize: 16
-                                }}>
+                                }}
+                            >
                                     { Lang.t('selectDestinationHint') }
                             </Text>
                             {
@@ -590,8 +597,7 @@ const styles = StyleSheet.create({
     },
     title: {
         color: 'white',
-        textAlign: 'center',
-        fontSize: 16
+        textAlign: 'center'
     },
 });
 
