@@ -30,6 +30,7 @@ import OfflineModeHint from './OfflineModeHint';
 
 export default function NextSchedule({ navigation, route }) {
     const [ crashMessage,            setCrashMessage            ] = useState();
+    const [ remainingTimeMillis,     setRemainingTimeMillis     ] = useState();
     const [ remainingTimeMessage,    setRemainingTimeMessage    ] = useState();
     const [ nextTripTime,            setNextTripTime            ] = useState();
     const [ alternativeNextTripTime, setAlternativeNextTripTime ] = useState();
@@ -283,6 +284,9 @@ export default function NextSchedule({ navigation, route }) {
           remainingTimeMessage += ` ${Lang.t('and')} `;
         }
 
+        // This logic accounts for the hidden seconds indicator on wearables.
+        if (Platform.constants.uiMode === 'watch') { minutes++; }
+
         if (minutes == 1) {
           remainingTimeMessage +=  `${minutes} ${Lang.t('minute')}`;
         } else {
@@ -290,7 +294,11 @@ export default function NextSchedule({ navigation, route }) {
         }
       }
 
-      if (hours == 0) {
+      if (
+        hours == 0
+        &&
+        (Platform.constants.uiMode !== 'watch' || minutes == 0)
+      ) {
         if (minutes > 0) {
           remainingTimeMessage += ` ${Lang.t('and')} `;
         }
@@ -304,7 +312,7 @@ export default function NextSchedule({ navigation, route }) {
         }
       }
 
-      if (seconds == 0 && minutes == 0) {
+      if (hours == 0 && seconds == 0 && minutes == 0) {
         remainingTimeMessage = Lang.t('hurryUpMessage');
       } else {
         remainingTimeMessage = `(${Lang.t('nextTripRemainingTimeMessage').replace('%s', remainingTimeMessage)})`;
@@ -507,15 +515,16 @@ export default function NextSchedule({ navigation, route }) {
       setTimeout(() => {
         if (typeof(nextTripTime) == 'undefined') { return; }
 
-        let remainingTimeMillis = nextTripTime.diff();
+        const nextRemainingMillis = nextTripTime.diff();
 
-        if (remainingTimeMillis >= 0) {
+        if (nextRemainingMillis >= 0) {
           setRemainingTimeMessage( buildRemainingTimeMessage() );
+          setRemainingTimeMillis( nextRemainingMillis );
         } else {
           Vibration.vibrate([ 1000, 75, 500, 75, 2500 ], true);
         }
       }, 1000);
-    }, [ nextTripTime, remainingTimeMessage ]);
+    }, [ nextTripTime, remainingTimeMillis ]);
 
     // Detect next trip time fade completed
     useEffect(() => {
@@ -586,7 +595,7 @@ export default function NextSchedule({ navigation, route }) {
                     ? <Text style={styles.centeredText}>
                         {Lang.t('noTripsFoundMessage')}
                       </Text>
-                    : <View style={styles.topPaddedView}>
+                    : <View>
                         <Text style={styles.centeredText}>
                           <Text style={styles.centeredBoldText}>{route.params.origin.title}</Text>
                         </Text>
@@ -616,7 +625,7 @@ export default function NextSchedule({ navigation, route }) {
                         </Text>
                         {
                           alternativeNextTripTime
-                            ? <Text style={[ styles.centeredThinText, { fontSize: 13, color: '#999999' } ]}>
+                            ? <Text style={[ styles.centeredThinText, { fontSize: 12, color: '#999999' } ]}>
                                 {Lang.t('alternativeTripStartTimeMessage')} <Text style={{ fontWeight: 'bold' }}>{alternativeNextTripTime}</Text>.
                               </Text>
                             : <View />
@@ -637,9 +646,6 @@ export default function NextSchedule({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  topPaddedView: {
-    marginTop: (Platform.constants.uiMode == 'watch' ? -24 : 0) // avoid layout clipping on rounded watches
-  },
   container: {
     flex: 1,
     width: '100%',
@@ -648,18 +654,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    paddingVertical: 0
+    paddingVertical: 16
   },
   title: { textAlign: 'center' },
   centeredText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'normal',
     textAlign: 'center'
   },
   centeredBoldText: {
     color: '#fff',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center'
   },
