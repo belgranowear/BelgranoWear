@@ -119,7 +119,7 @@ export default function DestinationPicker({ navigation }) {
                         return;
                     }
                 } else {
-                    console.debug(`verifyCachedResources: the remote checksum for "${url}" matches with out local version! - ${checksum} === ${remoteChecksum} - ${JSON.stringify(file)}`);
+                    console.debug(`verifyCachedResources: the remote checksum for "${url}" matches with our local version! - ${checksum} === ${remoteChecksum} - ${JSON.stringify(file)}`);
                 }
 
                 cacheKeys.shift();
