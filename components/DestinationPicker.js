@@ -1,3 +1,5 @@
+import normalizeSpecialCharacters from 'specialtonormal';
+
 import GestureRecognizer from 'react-native-swipe-gestures';
 
 import { StatusBar } from 'expo-status-bar';
@@ -55,7 +57,7 @@ export default function DestinationPicker({ navigation }) {
     const [ trainStationsMap,     setTrainStationsMap     ] = useState();
     const [ currentOperation,     setCurrentOperation     ] = useState();
     const [ holidaysList,         setHolidaysList         ] = useState();
-    const [ loadFinished,         setLoadFinished         ] = useState();
+    const [ loadFinished,         setLoadFinished         ] = useState(false);
     const [ destinationsList,     setDestinationsList     ] = useState();
     const [ segmentsList,         setSegmentsList         ] = useState();
     const [ crashMessage,         setCrashMessage         ] = useState();
@@ -418,14 +420,15 @@ export default function DestinationPicker({ navigation }) {
             if (destination.id === null) { return; } // skip dummy
 
             closestOriginNames.forEach(name => {
-                // console.debug(destination, ' / ', name);
+                const normalizedDestinationTitle = normalizeSpecialCharacters( destination.title.toLowerCase() ),
+                      normalizedOriginName       = normalizeSpecialCharacters( name.toLowerCase() );
 
-                if (destination.title.toLowerCase().indexOf(name.toLowerCase()) > -1) {
+                // console.debug(`${JSON.stringify(normalizedDestinationTitle)} / ${JSON.stringify(normalizedOriginName)}`);
+
+                if (normalizedDestinationTitle.indexOf(normalizedOriginName) > -1) {
                     console.debug('detectOriginStation:', destination, '==', name);
 
                     setOriginStation(destination);
-
-                    setLoadFinished(true);
                 }
             });
         });
@@ -489,7 +492,20 @@ export default function DestinationPicker({ navigation }) {
         setDestinationsList(
             destinationsList.filter(item => (item.id != originStation.id))
         );
+
+        setLoadFinished(true);
     }, [ originStation ]);
+
+    // Runs when the load finish flag has been raised (true)
+    useEffect(() => {
+        if (
+            typeof(originStation) != 'undefined'
+            ||
+            !loadFinished
+        ) { return; }
+
+        crash( Lang.t('originDetectionErrorMessage') );
+    }, [ loadFinished ]);
 
     // Runs when the train stations map gets populated
     useEffect(() => {
