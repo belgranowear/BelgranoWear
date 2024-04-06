@@ -65,8 +65,8 @@ export default function DestinationPicker({ navigation }) {
     const crash = message => { setCrashMessage(message); };
 
     const swipeRightHandler = state => {
-        if (Platform.constants.uiMode != 'watch') {
-            console.debug(`swipeRightHandler: aborted, uiMode should be "watch" but its current value is "${Platform.constants.uiMode}".`);
+        if (!Platform.constants || Platform.constants.uiMode != 'watch') {
+            console.debug(`swipeRightHandler: aborted, uiMode should be "watch" but its current value is "${Platform.constants ? Platform.constants.uiMode : 'unknown'}".`);
 
             return;
         }

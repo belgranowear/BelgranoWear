@@ -11,7 +11,8 @@ import {
   Text,
   View,
   Vibration,
-  Animated
+  Animated,
+  Dimensions
 } from 'react-native';
 
 import IDomParser from 'advanced-html-parser';
@@ -285,7 +286,7 @@ export default function NextSchedule({ navigation, route }) {
         }
 
         // This logic accounts for the hidden seconds indicator on wearables.
-        if (Platform.constants.uiMode === 'watch') { minutes++; }
+        if (Platform.constants && Platform.constants.uiMode === 'watch') { minutes++; }
 
         if (minutes == 1) {
           remainingTimeMessage +=  `${minutes} ${Lang.t('minute')}`;
@@ -297,7 +298,7 @@ export default function NextSchedule({ navigation, route }) {
       if (
         hours == 0
         &&
-        (Platform.constants.uiMode !== 'watch' || minutes == 0)
+        ((Platform.constants && Platform.constants.uiMode !== 'watch') || minutes == 0)
       ) {
         if (minutes > 0) {
           remainingTimeMessage += ` ${Lang.t('and')} `;
@@ -596,8 +597,8 @@ export default function NextSchedule({ navigation, route }) {
                         {Lang.t('noTripsFoundMessage')}
                       </Text>
                     : <View>
-                        <Text style={styles.centeredText}>
-                          <Text style={styles.centeredBoldText}>{route.params.origin.title}</Text>
+                        <Text style={styles.centeredBoldText}>
+                          {route.params.origin.title}
                         </Text>
                         <Text style={styles.centeredText}>
                           <Icon name="chevron-double-right" size={16} color='white' />
@@ -625,7 +626,17 @@ export default function NextSchedule({ navigation, route }) {
                         </Text>
                         {
                           alternativeNextTripTime
-                            ? <Text style={[ styles.centeredThinText, { fontSize: 12, color: '#999999' } ]}>
+                            ? <Text style={[
+                                styles.centeredThinText,
+                                {
+                                  fontSize: (
+                                    Dimensions.get('screen').width < 320
+                                      ? 10
+                                      : 12
+                                  ),
+                                  color: '#999999'
+                                }
+                              ]}>
                                 {Lang.t('alternativeTripStartTimeMessage')} <Text style={{ fontWeight: 'bold' }}>{alternativeNextTripTime}</Text>.
                               </Text>
                             : <View />
@@ -654,37 +665,57 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    paddingVertical: 16
+    paddingVertical: (
+      Platform.constants && Platform.constants.uiMode === 'watch'
+        ? 32
+        : 16
+    )
   },
   title: { textAlign: 'center' },
   centeredText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: (
+      Dimensions.get('screen').width < 320
+        ? 11
+        : 15
+    ),
     fontWeight: 'normal',
     textAlign: 'center'
   },
   centeredBoldText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: (
+      Dimensions.get('screen').width < 320
+        ? 12
+        : 16
+    ),
     fontWeight: 'bold',
     textAlign: 'center'
   },
   centeredLargeBoldText: {
     color: '#fff',
-    fontSize: 30,
+    fontSize: (
+      Dimensions.get('screen').width < 320
+        ? 20
+        : 30
+    ),
     fontWeight: 'bold',
     textAlign: 'center'
   },
   centeredThinText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: (
+      Dimensions.get('screen').width < 320
+        ? 10
+        : 12
+    ),
     fontWeight: '300',
     textAlign: 'center'
   },
   haTimeLoader: [
     { position: 'absolute' },
     (
-      Platform.constants.uiMode === 'watch'
+      Platform.constants && Platform.constants.uiMode === 'watch'
         ? { bottom: 4 }
         : {
           top:   16,

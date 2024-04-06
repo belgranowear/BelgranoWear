@@ -19,7 +19,11 @@ const Stack = createStackNavigator();
 
 export default function App() {
   if (SplashScreen !== null) {
-    SplashScreen.hide();
+    try {
+      SplashScreen.hide();
+    } catch (exception) {
+      console.warn('SplashScreen.hide():', exception);
+    }
   }
 
   return (
