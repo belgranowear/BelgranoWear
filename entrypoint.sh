@@ -15,10 +15,10 @@ export WEAROS_TEMP_PATH=$(pwd)/wearos;
 set -e; # quit on error
 
 echo '=> Installing Yarn dependencies...';
-yarn --verbose;
+yarn;
 
 echo '=> Installing packages with NPM...';
-npm i --verbose;
+npm i;
 
 if [[ "$ACTION" == 'run' ]]; then
     npx expo start --clear;
