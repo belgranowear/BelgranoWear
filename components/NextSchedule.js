@@ -232,7 +232,7 @@ export default function NextSchedule({ navigation, route }) {
           });
 
           if (originIndex === null || destinationIndex === null) {
-            console.warn(`fetchHighAccuracyRemainingTime: originId = "${originId}", destinationId = "${destinationId}"`);
+            console.warn(`fetchHighAccuracyRemainingTime: originIndex = "${originIndex}", destinationIndex = "${destinationIndex}"`);
 
             return;
           }
