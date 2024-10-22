@@ -15,7 +15,6 @@ import com.facebook.react.config.ReactFeatureFlags
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
-import com.facebook.react.flipper.ReactNativeFlipper
 import com.facebook.soloader.SoLoader
 
 import expo.modules.ApplicationLifecycleDispatcher
@@ -54,9 +53,6 @@ class MainApplication : Application(), ReactApplication {
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
-    }
-    if (BuildConfig.DEBUG && Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP_MR1) {
-      ReactNativeFlipper.initializeFlipper(this, reactNativeHost.reactInstanceManager)
     }
     ApplicationLifecycleDispatcher.onApplicationCreate(this)
   }
