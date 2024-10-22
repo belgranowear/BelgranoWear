@@ -214,16 +214,20 @@ export default function NextSchedule({ navigation, route }) {
 
             console.debug(`@${index} - (${station.id}) "${liveNameWord}"`);
 
+            console.debug('destinationName:', destinationName, 'liveNameWord:', liveNameWord);
+
             if (
-              destinationName.indexOf(' ' + liveNameWord) > -1
+              normalizeSpecialCharacters(destinationName).indexOf(' ' + liveNameWord) > -1
               ||
               destinationName === liveNameWord
             ) {
               destinationIndex = index;
             }
 
+            console.debug('originName:', originName, 'liveNameWord:', liveNameWord);
+
             if (
-              originName.indexOf(' ' + liveNameWord) > -1
+              normalizeSpecialCharacters(originName).indexOf(' ' + liveNameWord) > -1
               ||
               originName === liveNameWord
             ) {
