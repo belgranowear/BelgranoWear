@@ -344,6 +344,19 @@ export default function DestinationPicker({ navigation }) {
         return true;
     };
 
+    const parseOriginStation = name => {
+        const split = normalizeSpecialCharacters( name.toLowerCase() ).replaceAll(
+            new RegExp(/estacion |ciudad /, 'g'),
+            ''
+        ).split(' ');
+
+        if (split.length === 1) {
+            return split[0];
+        }
+
+        return ` ${split[split.length - 1]}`;
+    };
+
     const detectOriginStation = async () => {
         setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
 
@@ -398,11 +411,12 @@ export default function DestinationPicker({ navigation }) {
                 ||
                 currentDistance < closestDistanceMeters
             ) {
-                closestOriginNames     = [ station.name ];
+                closestOriginNames = [ parseOriginStation(station.name) ];
+
                 closestDistanceMeters  = currentDistance;
 
                 if (typeof(station.shortName) != 'undefined') {
-                    closestOriginNames.push(station.shortName);
+                    closestOriginNames.push( parseOriginStation(station.shortName) );
                 }
             }
         }
@@ -416,22 +430,39 @@ export default function DestinationPicker({ navigation }) {
             return;
         }
 
+        console.debug('closestOriginNames:', closestOriginNames);
+
+        let mappedDestinations = {};
+
         destinationsList.forEach(destination => {
-            if (destination.id === null) { return; } // skip dummy
-
-            closestOriginNames.forEach(name => {
-                const normalizedDestinationTitle = normalizeSpecialCharacters( destination.title.toLowerCase() ),
-                      normalizedOriginName       = normalizeSpecialCharacters( name.toLowerCase() );
-
-                // console.debug(`${JSON.stringify(normalizedDestinationTitle)} / ${JSON.stringify(normalizedOriginName)}`);
-
-                if (normalizedDestinationTitle.indexOf(normalizedOriginName) > -1) {
-                    console.debug('detectOriginStation:', destination, '==', name);
-
-                    setOriginStation(destination);
-                }
-            });
+            if (destination.id !== null) {
+                mappedDestinations[destination.id] = normalizeSpecialCharacters(destination.title.toLowerCase());
+            }
         });
+
+        console.debug('mappedDestinations:', mappedDestinations);
+
+        let nextOriginStation = null;
+
+        Object.keys(mappedDestinations).forEach(destination => {
+            const destinationTitle = mappedDestinations[destination];
+
+            console.debug(`${JSON.stringify(destinationTitle)} / ${JSON.stringify(closestOriginNames)}`);
+
+            if (closestOriginNames.some(name => destinationTitle.indexOf(name) > -1)) {
+                nextOriginStation = destinationsList.find(item => item.id === destination);
+            }
+        });
+
+        console.debug('nextOriginStation:', nextOriginStation);
+
+        if (nextOriginStation === null) {
+            crash( Lang.t('originDetectionErrorMessage') );
+
+            return;
+        }
+
+        setOriginStation(nextOriginStation);
     };
 
     const renderItem = ({ item }) => {
@@ -488,23 +519,18 @@ export default function DestinationPicker({ navigation }) {
     useEffect(() => {
         if (typeof(originStation) == 'undefined') { return; }
 
-        // Remove the origin station
-        setDestinationsList(
-            destinationsList.filter(item => (item.id != originStation.id))
-        );
+        console.debug('originStation:', originStation);
 
         setLoadFinished(true);
     }, [ originStation ]);
 
-    // Runs when the load finish flag has been raised (true)
     useEffect(() => {
-        if (
-            typeof(originStation) != 'undefined'
-            ||
-            !loadFinished
-        ) { return; }
+        if (!loadFinished) { return; }
 
-        crash( Lang.t('originDetectionErrorMessage') );
+        // Remove the origin station
+        setDestinationsList(
+            destinationsList.filter(item => (item.id != originStation.id))
+        );
     }, [ loadFinished ]);
 
     // Runs when the train stations map gets populated
@@ -513,6 +539,8 @@ export default function DestinationPicker({ navigation }) {
             typeof(trainStationsMap) == 'undefined'
             ||
             typeof(destinationsList) == 'undefined'
+            ||
+            typeof(originStation) != 'undefined'
         ) { return; }
 
         detectOriginStation();
