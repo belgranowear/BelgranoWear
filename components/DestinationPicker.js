@@ -572,12 +572,12 @@ export default function DestinationPicker({ navigation }) {
                                 adjustsFontSizeToFit
                                 style={{
                                     color: 'white',
-                                    paddingTop: 16,
-                                    paddingBottom: 8,
                                     textAlign: 'center',
+                                    paddingTop:     Platform.constants.uiMode === 'watch' ? 16 : 0,
+                                    paddingBottom:  Platform.constants.uiMode === 'watch' ? 8 : 12
                                 }}
                             >
-                                    { Lang.t('selectDestinationHint') }
+                                { Lang.t('selectDestinationHint') }
                             </Text>
                             {
                                 <FlatList

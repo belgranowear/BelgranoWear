@@ -55,7 +55,10 @@ Lang.translations   = {
         fetchNextTripTimeError: 'A connection error has occured while trying to fetch the next trip time, please try again later.',
         verifyCachedResourcesMessage: 'Checking for updates',
         fetchingNextTripTimeMessage: 'Fetching trip schedule',
-        processingScheduleMessage: 'Processing scheduled trips'
+        processingScheduleMessage: 'Processing scheduled trips',
+        screenDestinationPickerName: 'Destinations',
+        screenNextScheduleName: 'Next trip',
+        screenOfflineModeInfoName: 'Offline mode'
     },
     es: {
         to: 'a',
@@ -93,7 +96,10 @@ Lang.translations   = {
         fetchNextTripTimeError: 'Ocurrió un error de conexión al intentar obtener la hora del próximo viaje, por favor, volvé a intentarlo más tarde.',
         verifyCachedResourcesMessage: 'Comprobando actualizaciones',
         fetchingNextTripTimeMessage: 'Obteniendo programa de horarios',
-        processingScheduleMessage: 'Procesando viajes programados'
+        processingScheduleMessage: 'Procesando viajes programados',
+        screenDestinationPickerName: 'Destinos',
+        screenNextScheduleName: 'Próximo viaje',
+        screenOfflineModeInfoName: 'Modo sin conexión'
     }
 }
 
