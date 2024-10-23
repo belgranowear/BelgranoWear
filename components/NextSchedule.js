@@ -634,7 +634,7 @@ export default function NextSchedule({ navigation, route }) {
                                 styles.centeredThinText,
                                 {
                                   fontSize: (
-                                    Dimensions.get('screen').width < 320
+                                    Dimensions.get('screen').width <= 384
                                       ? 10
                                       : 12
                                   ),
@@ -679,7 +679,7 @@ const styles = StyleSheet.create({
   centeredText: {
     color: '#fff',
     fontSize: (
-      Dimensions.get('screen').width < 320
+      Dimensions.get('screen').width <= 384
         ? 11
         : 15
     ),
@@ -689,7 +689,7 @@ const styles = StyleSheet.create({
   centeredBoldText: {
     color: '#fff',
     fontSize: (
-      Dimensions.get('screen').width < 320
+      Dimensions.get('screen').width <= 384
         ? 12
         : 16
     ),
@@ -699,7 +699,7 @@ const styles = StyleSheet.create({
   centeredLargeBoldText: {
     color: '#fff',
     fontSize: (
-      Dimensions.get('screen').width < 320
+      Dimensions.get('screen').width <= 384
         ? 20
         : 30
     ),
@@ -709,7 +709,7 @@ const styles = StyleSheet.create({
   centeredThinText: {
     color: '#fff',
     fontSize: (
-      Dimensions.get('screen').width < 320
+      Dimensions.get('screen').width <= 384
         ? 10
         : 12
     ),
