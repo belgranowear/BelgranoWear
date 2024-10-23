@@ -12,7 +12,8 @@ import {
   View,
   Vibration,
   Animated,
-  Dimensions
+  Dimensions,
+  PixelRatio
 } from 'react-native';
 
 import IDomParser from 'advanced-html-parser';
@@ -660,6 +661,8 @@ export default function NextSchedule({ navigation, route }) {
     );
 }
 
+const fontScale = PixelRatio.getFontScale();
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -680,8 +683,12 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: (
       Dimensions.get('screen').width <= 384
-        ? 11
-        : 15
+        ? (
+            fontScale >= 1.225
+              ? fontScale * 5
+              : fontScale * 8.5
+        )
+        : 16
     ),
     fontWeight: 'normal',
     textAlign: 'center'
@@ -690,7 +697,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: (
       Dimensions.get('screen').width <= 384
-        ? 12
+        ? (
+            fontScale >= 1.225
+              ? fontScale  * 7
+              : fontScale  * 12
+        )
         : 16
     ),
     fontWeight: 'bold',
@@ -700,7 +711,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: (
       Dimensions.get('screen').width <= 384
-        ? 20
+        ? (
+            fontScale >= 1.225
+              ? fontScale  * 14
+              : fontScale  * 24
+        )
         : 30
     ),
     fontWeight: 'bold',

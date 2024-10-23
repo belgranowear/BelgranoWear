@@ -16,7 +16,8 @@ import {
   Platform,
   Text,
   View,
-  TouchableOpacity
+  TouchableOpacity,
+  PixelRatio
 } from 'react-native';
 
 import * as Location from 'expo-location';
@@ -573,8 +574,12 @@ export default function DestinationPicker({ navigation }) {
                                 style={{
                                     color: 'white',
                                     textAlign: 'center',
-                                    paddingTop:     Platform.constants.uiMode === 'watch' ? 16 : 0,
-                                    paddingBottom:  Platform.constants.uiMode === 'watch' ? 8 : 12
+                                    paddingBottom:  Platform.constants.uiMode === 'watch' ? 8 : 12,
+                                    paddingTop: (
+                                        Platform.constants.uiMode === 'watch'
+                                            ? PixelRatio.getFontScale() * 24
+                                            : 0
+                                    )
                                 }}
                             >
                                 { Lang.t('selectDestinationHint') }
