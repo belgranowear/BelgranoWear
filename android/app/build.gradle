@@ -138,8 +138,8 @@ android {
         applicationId 'ar.com.facundomontero.belgranowear'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 35
-        versionName "1.4.0"
+        versionCode 37
+        versionName "1.4.1"
     }
     signingConfigs {
         debug {
