@@ -663,6 +663,8 @@ export default function NextSchedule({ navigation, route }) {
 
 const fontScale = PixelRatio.getFontScale();
 
+const LARGE_FONT_SCALE = 1.10;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -684,7 +686,7 @@ const styles = StyleSheet.create({
     fontSize: (
       Dimensions.get('screen').width <= 384
         ? (
-            fontScale >= 1.225
+            fontScale >= LARGE_FONT_SCALE
               ? fontScale * 5
               : fontScale * 8.5
         )
@@ -698,7 +700,7 @@ const styles = StyleSheet.create({
     fontSize: (
       Dimensions.get('screen').width <= 384
         ? (
-            fontScale >= 1.225
+            fontScale >= LARGE_FONT_SCALE
               ? fontScale  * 7
               : fontScale  * 12
         )
@@ -712,7 +714,7 @@ const styles = StyleSheet.create({
     fontSize: (
       Dimensions.get('screen').width <= 384
         ? (
-            fontScale >= 1.225
+            fontScale >= LARGE_FONT_SCALE
               ? fontScale  * 14
               : fontScale  * 24
         )
