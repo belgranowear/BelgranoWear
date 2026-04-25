@@ -13,19 +13,25 @@ This repository is the frontend of the static information provisioning backend l
 
 - Download **Expo Go** for [Android](https://play.google.com/store/apps/details?id=host.exp.exponent) or for [iOS](https://apps.apple.com/us/app/expo-go/id982107779).
 
-- Enable the real-time bundler by running the following command:
+- Start the Expo Go development server from Docker. This is the recommended workflow because the container pins the Node.js, JDK, and Android SDK versions expected by Expo SDK 54:
 
-    `ACTION=run docker compose up --build`
+    `ACTION=run EXPO_HOST=tunnel docker compose up --build`
 
-- In a different terminal, copy and paste the following command to get your IP address:
+- Scan the QR code printed by Expo with **Expo Go**.
+
+- If the tunnel is slow and your phone is on the same network as your computer, you can use LAN mode instead. First get your host machine's LAN IP address:
 
     `ip addr show | grep -e ': w' -e ': e' -A4 | grep inet | sed 's/.*inet //' | cut -d ' ' -f 1`
+
+    Then start Expo with that IP:
+
+    `REACT_NATIVE_PACKAGER_HOSTNAME=192.168.0.4 ACTION=run EXPO_HOST=lan docker compose up --build`
 
 - Open **Expo Go** and pass a URL as the following example:
 
     `exp://192.168.0.4:8081`
 
-    The port will always be **8081**.
+    Replace `192.168.0.4` with your host machine's LAN IP. The port will always be **8081**.
 
 - Wait for the app to get bundled and accept all permission requests.
 
