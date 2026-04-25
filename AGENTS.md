@@ -8,7 +8,9 @@ BelgranoWear is an Expo/React Native app for Android, WearOS, iOS, and web. `App
 - `npm start` — start the Expo development server locally.
 - `npm run android` / `npm run ios` — run the native Expo app on an emulator or device.
 - `npm run web` — start the web preview.
-- `ACTION=run docker compose up --build` — run the Expo bundler in Docker on port `8081`.
+- Prefer the Docker environment for Expo/Android work so Node, JDK, and Android SDK versions stay aligned with SDK 54.
+- `ACTION=run EXPO_HOST=tunnel docker compose up --build` — run the Expo Go dev server in Docker on port `8081`; tunnel mode is the most reliable from a phone because LAN mode can advertise the container IP.
+- `REACT_NATIVE_PACKAGER_HOSTNAME=<host-lan-ip> ACTION=run EXPO_HOST=lan docker compose up --build` — faster LAN Expo Go server when the phone can reach the host machine directly.
 - `MODE=test docker compose up --build` — create debug Android and WearOS artifacts in `artifacts/`.
 
 ## Coding Style & Naming Conventions
