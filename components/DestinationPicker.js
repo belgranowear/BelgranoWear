@@ -66,10 +66,11 @@ export default function DestinationPicker({ navigation }) {
     const [ selectedId,           setSelectedId           ] = useState();
 
     const crash = message => { setCrashMessage(message); };
+    const isWatch = Platform.constants?.uiMode === 'watch';
 
     const swipeRightHandler = state => {
-        if (!Platform.constants || Platform.constants.uiMode != 'watch') {
-            console.debug(`swipeRightHandler: aborted, uiMode should be "watch" but its current value is "${Platform.constants ? Platform.constants.uiMode : 'unknown'}".`);
+        if (!isWatch) {
+            console.debug(`swipeRightHandler: aborted, uiMode should be "watch" but its current value is "${Platform.constants?.uiMode ?? 'unknown'}".`);
 
             return;
         }
@@ -574,9 +575,9 @@ export default function DestinationPicker({ navigation }) {
                                 style={{
                                     color: 'white',
                                     textAlign: 'center',
-                                    paddingBottom:  Platform.constants.uiMode === 'watch' ? 8 : 12,
+                                    paddingBottom:  isWatch ? 8 : 12,
                                     paddingTop: (
-                                        Platform.constants.uiMode === 'watch'
+                                        isWatch
                                             ? PixelRatio.getFontScale() * 24
                                             : 0
                                     )

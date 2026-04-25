@@ -165,6 +165,13 @@ export default function NextSchedule({ navigation, route }) {
     };
 
     const fetchHighAccuracyRemainingTime = (originName, destinationName) => {
+      if (Platform.OS === 'web') {
+        console.debug('fetchHighAccuracyRemainingTime: skipping live tracking on web to avoid browser CORS failures.');
+        setShouldLoopAnimation(false);
+
+        return;
+      }
+
       originName      = originName.toLowerCase();
       destinationName = destinationName.toLowerCase();
 

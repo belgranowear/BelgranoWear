@@ -20,13 +20,15 @@ import Lang from './includes/Lang';
 const Stack = createStackNavigator();
 
 export default function App() {
-  if (SplashScreen !== null) {
+  if (SplashScreen?.hide) {
     try {
       SplashScreen.hide();
     } catch (exception) {
       console.warn('SplashScreen.hide():', exception);
     }
   }
+
+  const isWatch = Platform.constants?.uiMode === 'watch';
 
   return (
     <>
@@ -35,9 +37,9 @@ export default function App() {
         <Stack.Navigator screenOptions={{
           cardStyle:        {
             backgroundColor: 'black',
-            paddingHorizontal: Platform.constants.uiMode === 'watch' ? 0 : 8,
+            paddingHorizontal: isWatch ? 0 : 8,
           },
-          headerShown:      Platform.constants.uiMode !== 'watch',
+          headerShown:      !isWatch,
           gestureEnabled:   true,
           headerStyle:      { backgroundColor: 'black' },
           headerShadowVisible: false,
