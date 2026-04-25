@@ -25,14 +25,15 @@ RUN rm -f /etc/ssl/certs/ca-bundle.crt &&\
     rm -rf /var/lib/apt/lists/* &&\
     update-ca-certificates
 
-# Install Node.js 21.x
-RUN curl -fsSL https://deb.nodesource.com/setup_21.x | bash - &&\
+# Install Node.js 22.x LTS, which is supported by Expo SDK 54.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&\
     apt-get install -y nodejs &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/*
 
-# Install Yarn
-RUN npm install --global yarn
+ENV ANDROID_HOME=/tmp/android/sdk
+ENV ANDROID_SDK_ROOT=/tmp/android/sdk
+ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
 
 # Install JQ
 RUN apt-get update && apt-get install -y --no-install-recommends jq &&\

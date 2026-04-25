@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # Add Android SDK binaries to the global PATH
-export PATH="$PATH":/tmp/android/sdk/cmdline-tools/latest/bin;
-
-# Define the path to the Android SDK
-export ANDROID_HOME=/tmp/android/sdk;
+export ANDROID_HOME=${ANDROID_HOME:-/tmp/android/sdk};
+export ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-$ANDROID_HOME};
+export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools";
 
 # Define the path to the artifacts output
 export ARTIFACTS_PATH=$(pwd)/artifacts;
@@ -14,14 +13,18 @@ export WEAROS_TEMP_PATH=$(pwd)/wearos;
 
 set -e; # quit on error
 
-echo '=> Installing Yarn dependencies...';
-yarn;
-
 echo '=> Installing packages with NPM...';
-npm i;
+npm install;
 
 if [[ "$ACTION" == 'run' ]]; then
-    npx expo start --clear;
+    EXPO_HOST=${EXPO_HOST:-lan};
+
+    echo '=> Starting Expo Go dev server with host mode: '"$EXPO_HOST"'...';
+    if [[ "$EXPO_HOST" == 'lan' ]] && [[ -z "$REACT_NATIVE_PACKAGER_HOSTNAME" ]]; then
+        echo '=> Tip: when using Docker on LAN, set REACT_NATIVE_PACKAGER_HOSTNAME to your host machine LAN IP if Expo prints an unreachable container IP.';
+    fi;
+
+    npx expo start --go --host "$EXPO_HOST" --clear;
 
     exit $?;
 else
@@ -90,8 +93,7 @@ if [[ "$ENABLE_RELEASE_BUILDS" == 'true' ]]; then
 fi;
 
 echo '=> Installing the Android SDK platform and build tools...';
-yes | sdkmanager 'build-tools;34.0.0';
-yes | sdkmanager 'platform-tools';
+yes | sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006';
 
 echo '=> Accepting all SDK licenses...';
 yes | sdkmanager --licenses;
