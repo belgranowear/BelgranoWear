@@ -29,7 +29,14 @@ const Cache = {
 
     keys: async () => await AsyncStorage.getAllKeys(),
 
-    clear: async () => await AsyncStorage.clear()
+    clear: async () => {
+        const keys = await AsyncStorage.getAllKeys();
+        const cacheKeys = keys.filter(key => key.indexOf('http') === 0);
+
+        if (cacheKeys.length === 0) { return; }
+
+        return await AsyncStorage.multiRemove(cacheKeys);
+    }
 };
 
 export default Cache;

@@ -2,22 +2,16 @@ import normalizeSpecialCharacters from 'specialtonormal';
 
 import GestureRecognizer from 'react-native-swipe-gestures';
 
-import { StatusBar } from 'expo-status-bar';
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import {
   BackHandler,
-  ActivityIndicator,
-  Dimensions,
-  SafeAreaView,
   FlatList,
-  StyleSheet,
   Platform,
-  Text,
-  View,
-  TouchableOpacity,
-  PixelRatio
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View
 } from 'react-native';
 
 import * as Location from 'expo-location';
@@ -26,59 +20,258 @@ import { getPreciseDistance } from 'geolib';
 
 import { MD5 } from 'crypto-js';
 
+import {
+  ActivityIndicator,
+  Button,
+  IconButton,
+  List,
+  Menu,
+  Surface,
+  Text
+} from 'react-native-paper';
+
 import OfflineModeHint from './OfflineModeHint';
+import { AppScreen, StatusPill, TransitCard, useResponsiveMetrics } from './ui';
 
-import Cache           from '../includes/Cache';
-import Lang            from '../includes/Lang';
+import Cache       from '../includes/Cache';
+import Lang        from '../includes/Lang';
+import Preferences from '../includes/Preferences';
+import { useTheme } from '../includes/Theme';
+import { getUIPreviewMode, isWatchUIPreview, previewState } from '../includes/UIPreview';
 
-const Item = ({item, onPress, backgroundColor, textColor, hasLargeDisplay}) => (
-    <TouchableOpacity
-        onPress={onPress}
-        style={[
-            (
-                hasLargeDisplay
-                    ? styles.itemLarge
-                    : styles.item
-            ),
-            {backgroundColor}
-        ]}
-    >
-      <Text
-        style={[ styles.title, {color: textColor} ]}
-        adjustsFontSizeToFit
-      >
-        {item.title}
-      </Text>
-    </TouchableOpacity>
-);
+const PROXIMITY_WARNING_METERS = 1200;
+
+const formatDistanceKm = meters => (meters / 1000).toFixed(1);
+
+const themeModeLabel = themeMode => ({
+    system: Lang.t('themeModeSystem'),
+    light:  Lang.t('themeModeLight'),
+    dark:   Lang.t('themeModeDark')
+}[themeMode] || Lang.t('themeModeSystem'));
+
+const tripDestination = trip => trip.destination;
+
+function ThemeMenu() {
+    const { themeMode, setThemeMode } = useTheme();
+    const [ visible, setVisible ] = useState(false);
+
+    return (
+        <Menu
+            visible={visible}
+            onDismiss={() => setVisible(false)}
+            anchor={<IconButton icon="dots-vertical" accessibilityLabel={Lang.t('themeModeButtonLabel').replace('%s', themeModeLabel(themeMode))} onPress={() => setVisible(true)} />}
+        >
+            {[ 'system', 'light', 'dark' ].map(mode => (
+                <Menu.Item
+                    key={mode}
+                    leadingIcon={themeMode === mode ? 'check' : undefined}
+                    onPress={() => {
+                        setVisible(false);
+                        setThemeMode(mode);
+                    }}
+                    title={themeModeLabel(mode)}
+                />
+            ))}
+        </Menu>
+    );
+}
+
+function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, compact = false }) {
+    const { theme } = useTheme();
+
+    if (compact) {
+        return (
+            <Surface
+                mode="flat"
+                elevation={0}
+                style={[
+                    styles.stationSurface,
+                    styles.stationSurfaceWatch,
+                    { backgroundColor: theme.paperTheme.colors.surfaceVariant }
+                ]}
+            >
+                <Pressable
+                    onPress={onPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.title}
+                    accessibilityHint={accessibilityHint}
+                    style={styles.stationRowPressableWatch}
+                >
+                    <Text numberOfLines={2} style={styles.stationTitleWatch}>{item.title}</Text>
+                </Pressable>
+                {onFavoritePress ? (
+                    <Pressable
+                        accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
+                        accessibilityRole="button"
+                        onPress={onFavoritePress}
+                        hitSlop={8}
+                        style={[
+                            styles.stationStarFloating,
+                            {
+                                backgroundColor: isFavorite ? theme.accentSoft : 'rgba(255, 255, 255, 0.24)'
+                            }
+                        ]}
+                    >
+                        <Text style={[ styles.stationStarText, { color: isFavorite ? theme.accentStrong : theme.paperTheme.colors.onSurfaceVariant, opacity: isFavorite ? 1 : 0.72 } ]}>
+                            {isFavorite ? '★' : '☆'}
+                        </Text>
+                    </Pressable>
+                ) : null}
+            </Surface>
+        );
+    }
+
+    return (
+        <Surface
+            mode="flat"
+            elevation={1}
+            style={[
+                styles.stationSurface,
+                { backgroundColor: theme.paperTheme.colors.surfaceVariant }
+            ]}
+        >
+            <List.Item
+                title={item.title}
+                titleNumberOfLines={2}
+                titleStyle={styles.stationTitle}
+                left={props => <List.Icon {...props} icon="train" />}
+                right={props => onFavoritePress
+                    ? <IconButton
+                        {...props}
+                        icon={isFavorite ? 'star' : 'star-outline'}
+                        accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
+                        onPress={onFavoritePress}
+                      />
+                    : <List.Icon {...props} icon="chevron-right" />}
+                onPress={onPress}
+                accessibilityRole="button"
+                accessibilityLabel={item.title}
+                accessibilityHint={accessibilityHint}
+                style={styles.stationRow}
+            />
+        </Surface>
+    );
+}
+
+function QuickRouteCard({ trip, label, onPress }) {
+    const { theme } = useTheme();
+
+    return (
+        <Surface mode="flat" elevation={1} style={[ styles.quickRouteCard, { backgroundColor: theme.paperTheme.colors.surfaceVariant } ]}>
+            <List.Item
+                title={tripDestination(trip).title}
+                description={label}
+                titleNumberOfLines={2}
+                left={props => <List.Icon {...props} icon="ray-start-arrow" />}
+                onPress={onPress}
+                accessibilityRole="button"
+                accessibilityLabel={`${label}: ${trip.origin.title} ${Lang.t('to')} ${trip.destination.title}`}
+                style={styles.quickRouteItem}
+            />
+        </Surface>
+    );
+}
+
+function LoadingState({ operation }) {
+    const { theme } = useTheme();
+
+    return (
+        <AppScreen scroll={false} contentStyle={styles.centerContent}>
+            <TransitCard style={styles.loadingCard}>
+                <ActivityIndicator size="large" color={theme.accent} accessibilityLabel={operation} />
+                <Text variant="titleMedium" style={styles.centerText}>{operation}</Text>
+            </TransitCard>
+        </AppScreen>
+    );
+}
 
 export default function DestinationPicker({ navigation }) {
-    const [ hasLargeDisplay,      setHasLargeDisplay      ] = useState();
-    const [ originStation,        setOriginStation        ] = useState();
-    const [ trainStationsMap,     setTrainStationsMap     ] = useState();
-    const [ currentOperation,     setCurrentOperation     ] = useState();
-    const [ holidaysList,         setHolidaysList         ] = useState();
-    const [ loadFinished,         setLoadFinished         ] = useState(false);
-    const [ destinationsList,     setDestinationsList     ] = useState();
-    const [ segmentsList,         setSegmentsList         ] = useState();
-    const [ crashMessage,         setCrashMessage         ] = useState();
-    const [ networkErrorDetected, setNetworkErrorDetected ] = useState();
-    const [ selectedId,           setSelectedId           ] = useState();
+    const responsive = useResponsiveMetrics();
+    const { theme, isAndroidDynamicColorAvailable } = useTheme();
+    const previewMode = getUIPreviewMode();
+    const watchLayout = responsive.isWatch || isWatchUIPreview();
+    const watchListEndPadding = watchLayout ? Math.round(responsive.shortestSide * 0.2) : 0;
+
+    const [ originStation,              setOriginStation              ] = useState();
+    const [ originDistanceMeters,       setOriginDistanceMeters       ] = useState();
+    const [ trainStationsMap,           setTrainStationsMap           ] = useState();
+    const [ currentOperation,           setCurrentOperation           ] = useState(Lang.t('verifyCachedResourcesMessage') + '…');
+    const [ holidaysList,               setHolidaysList               ] = useState();
+    const [ loadFinished,               setLoadFinished               ] = useState(false);
+    const [ allDestinationsList,        setAllDestinationsList        ] = useState();
+    const [ segmentsList,               setSegmentsList               ] = useState();
+    const [ crashMessage,               setCrashMessage               ] = useState();
+    const [ networkErrorDetected,       setNetworkErrorDetected       ] = useState();
+    const [ selectedId,                 setSelectedId                 ] = useState();
+    const [ showManualOriginPicker,     setShowManualOriginPicker     ] = useState(false);
+    const [ manualOriginReason,         setManualOriginReason         ] = useState();
+    const [ favoriteTrips,              setFavoriteTrips              ] = useState([]);
+    const [ recentTrips,                setRecentTrips                ] = useState([]);
+
+    const destinationList = useMemo(() => {
+        if (!allDestinationsList) { return []; }
+        if (!originStation)       { return allDestinationsList; }
+
+        return allDestinationsList.filter(item => item.id !== originStation.id);
+    }, [ allDestinationsList, originStation ]);
+
+    const currentOriginFavoriteDestinationIds = useMemo(() => {
+        if (!originStation) { return []; }
+
+        return favoriteTrips
+            .filter(trip => trip.origin.id === originStation.id)
+            .map(trip => trip.destination.id);
+    }, [ favoriteTrips, originStation ]);
+
+    const favoriteDestinations = useMemo(() => {
+        if (!originStation) { return []; }
+
+        return favoriteTrips
+            .filter(trip => trip.origin.id === originStation.id)
+            .map(trip => destinationList.find(item => item.id === trip.destination.id))
+            .filter(Boolean);
+    }, [ favoriteTrips, destinationList, originStation ]);
+
+    const recentDestinations = useMemo(() => {
+        if (!originStation) { return []; }
+
+        return recentTrips
+            .filter(trip => trip.origin.id === originStation.id)
+            .map(trip => destinationList.find(item => item.id === trip.destination.id))
+            .filter(Boolean)
+            .filter((item, index, array) => array.findIndex(candidate => candidate.id === item.id) === index)
+            .filter(item => currentOriginFavoriteDestinationIds.indexOf(item.id) === -1)
+            .slice(0, 3);
+    }, [ recentTrips, destinationList, originStation, currentOriginFavoriteDestinationIds ]);
+
+    const standardDestinations = useMemo(() => destinationList.filter(item => (
+        currentOriginFavoriteDestinationIds.indexOf(item.id) === -1
+        &&
+        recentDestinations.findIndex(recent => recent.id === item.id) === -1
+    )), [ destinationList, currentOriginFavoriteDestinationIds, recentDestinations ]);
 
     const crash = message => { setCrashMessage(message); };
-    const isWatch = Platform.constants?.uiMode === 'watch';
+
+    const refreshPreferences = async () => {
+        setFavoriteTrips(await Preferences.getFavoriteTrips());
+        setRecentTrips(await Preferences.getRecentTrips());
+    };
 
     const swipeRightHandler = state => {
-        if (!isWatch) {
-            console.debug(`swipeRightHandler: aborted, uiMode should be "watch" but its current value is "${Platform.constants?.uiMode ?? 'unknown'}".`);
-
-            return;
-        }
-
+        if (!Platform.constants || Platform.constants.uiMode != 'watch') { return; }
         console.debug('swipeRightHandler:', state);
-
         BackHandler.exitApp();
-    }
+    };
+
+    const withOptionalSwipeExit = content => {
+        if (watchLayout) { return content; }
+
+        return (
+            <GestureRecognizer style={{ flex: 1 }} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
+                {content}
+            </GestureRecognizer>
+        );
+    };
 
     const verifyCachedResources = async () => {
         setCurrentOperation( Lang.t('verifyCachedResourcesMessage') + '…' );
@@ -86,11 +279,14 @@ export default function DestinationPicker({ navigation }) {
         let cacheKeys     = await Cache.keys(),
             unmatchedKeys = 0;
 
-        console.debug('Cache keys:', cacheKeys);
-
         try {
             while (cacheKeys.length > 0) {
                 let url = cacheKeys[ Object.keys(cacheKeys)[0] ];
+
+                if (url.indexOf('http') !== 0) {
+                    cacheKeys.shift();
+                    continue;
+                }
 
                 let remoteChecksumURL = (
                     process.env.REMOTE_BASE_URL + '/' +
@@ -102,16 +298,10 @@ export default function DestinationPicker({ navigation }) {
                 let file     = await Cache.get(url),
                     checksum = MD5( JSON.stringify(file) ).toString();
 
-                console.debug('verifyCachedResources: remoteChecksumURL:', remoteChecksumURL, remoteChecksum);
-
                 if (checksum !== remoteChecksum) {
-                    console.info(`verifyCachedResources: new version detected for "${url}", redownloading... - ${checksum} !== ${remoteChecksum} - ${JSON.stringify(file)}`);
-
                     try {
                         let prefetchResponse = await fetch(url),
                             prefetchJSON     = await prefetchResponse.json();
-
-                        console.debug(`verifyCachedResources: prefetch succeeded for "${url}"! - ${JSON.stringify(prefetchJSON)}`);
 
                         Cache.set(url, prefetchJSON);
                     } catch (prefetchException) {
@@ -121,14 +311,9 @@ export default function DestinationPicker({ navigation }) {
                     unmatchedKeys++;
 
                     if (unmatchedKeys >= process.env.CACHE_MAX_UNMATCHED_KEYS_FOR_CLEAR) {
-                        console.debug(`verifyCachedResources: more than ${process.env.CACHE_MAX_UNMATCHED_KEYS_FOR_CLEAR} cache keys didn't match with the remote server, clearing everything and starting over!`);
-
                         await Cache.clear();
-
                         return;
                     }
-                } else {
-                    console.debug(`verifyCachedResources: the remote checksum for "${url}" matches with our local version! - ${checksum} === ${remoteChecksum} - ${JSON.stringify(file)}`);
                 }
 
                 cacheKeys.shift();
@@ -136,34 +321,17 @@ export default function DestinationPicker({ navigation }) {
         } catch (exception) {
             console.warn('verifyCachedResources: couldn\'t query:', exception);
         }
-    }
+    };
 
     const loadTrainStationsMap = json => {
         let newTrainStationsMap = [];
 
         json.elements.forEach(station => {
-            if (typeof(station.tags.name) == 'undefined') {
-                console.warn('UTN:', station);
-
-                return;
-            }
-
-            if (
-                (
-                    typeof(station.lat) == 'undefined'
-                    ||
-                    typeof(station.lon) == 'undefined'
-                )
-                &&
-                typeof(station.center) == 'undefined'
-            ) {
-                console.warn('NLD:', station);
-
-                return;
-            }
+            if (typeof(station.tags.name) == 'undefined') { return; }
+            if (((typeof(station.lat) == 'undefined' || typeof(station.lon) == 'undefined')) && typeof(station.center) == 'undefined') { return; }
 
             newTrainStationsMap.push({
-                name:      station.tags.name.replace(/ \(.*'/, ''), // remove additional info hints
+                name:      station.tags.name.replace(/ \(.*'/, ''),
                 shortName: station.tags.short_name,
                 latitude:  (station.lat ?? station.center.lat),
                 longitude: (station.lon ?? station.center.lon)
@@ -171,175 +339,98 @@ export default function DestinationPicker({ navigation }) {
         });
 
         setTrainStationsMap(newTrainStationsMap);
-
-        console.debug('newTrainStationsMap:', newTrainStationsMap);
     };
 
-    const fetchTrainStationsMap = async () => {
-        setCurrentOperation( Lang.t('fetchingTrainStationsMapMessage') + '…' );
+    const fetchJSONWithCache = async ({ url, onLoad, errorMessage, operationMessage }) => {
+        setCurrentOperation( operationMessage + '…' );
 
-        let url = process.env.REMOTE_BASE_URL + '/train_stations.json';
+        try {
+            const response = await fetch(url);
+            const json     = await response.json();
 
-        await fetch(url)
-          .then(response => response.json())
-          .then(json     => {
-            console.debug('fetchTrainStationsMap:', json);
-
-            loadTrainStationsMap(json);
-
+            onLoad(json);
             Cache.set(url, json);
-          })
-          .catch(async exception => {
+        } catch (exception) {
             let cachedData = await Cache.get(url);
 
             if (cachedData) {
-                console.warn('fetchTrainStationsMap: couldn\'t query, falling back to cached response. - ', exception);
-
                 setNetworkErrorDetected(true);
-
-                loadTrainStationsMap(cachedData);
+                onLoad(cachedData);
             } else {
-                console.error('fetchTrainStationsMap: couldn\'t query:', exception);
-
-                crash( Lang.t('fetchTrainStationsMapError') );
+                console.error(`fetchJSONWithCache: couldn't query ${url}:`, exception);
+                crash(errorMessage);
             }
-          });
-    }
+        }
+    };
 
-    const fetchHolidaysList = async () => {
-        setCurrentOperation( Lang.t('fetchingHolidaysListMessage') + '…' );
+    const fetchTrainStationsMap = async () => await fetchJSONWithCache({
+        url:              process.env.REMOTE_BASE_URL + '/train_stations.json',
+        onLoad:           loadTrainStationsMap,
+        errorMessage:     Lang.t('fetchTrainStationsMapError'),
+        operationMessage: Lang.t('fetchingTrainStationsMapMessage')
+    });
 
-        let url = process.env.REMOTE_BASE_URL + `/holidays_${(new Date().getFullYear())}.json`;
-
-        await fetch(url)
-          .then(response => response.json())
-          .then(json     => {
-            console.debug('fetchHolidaysList:', json);
-
-            setHolidaysList(json);
-
-            Cache.set(url, json);
-          })
-          .catch(async exception => {
-            let cachedData = await Cache.get(url);
-
-            if (cachedData) {
-                console.warn('fetchHolidaysList: couldn\'t query, falling back to cached response. - ', exception);
-
-                setNetworkErrorDetected(true);
-
-                setHolidaysList(cachedData);
-            } else {
-                console.error('fetchHolidaysList: couldn\'t query:', exception);
-
-                crash( Lang.t('fetchHolidaysListError') );
-            }
-          });
-    }
+    const fetchHolidaysList = async () => await fetchJSONWithCache({
+        url:              process.env.REMOTE_BASE_URL + `/holidays_${(new Date().getFullYear())}.json`,
+        onLoad:           setHolidaysList,
+        errorMessage:     Lang.t('fetchHolidaysListError'),
+        operationMessage: Lang.t('fetchingHolidaysListMessage')
+    });
 
     const loadAvailabilityOptions = json => {
         let newDestinationsList = [];
 
         Object.keys(json.destination).forEach(key => {
-            newDestinationsList.push({
-                id:    key,
-                title: json.destination[key]
-            });
+            newDestinationsList.push({ id: key, title: json.destination[key] });
         });
-
-        console.debug('newDestinationsList:', newDestinationsList);
 
         setSegmentsList(json.scheduleSegment);
-        setDestinationsList(newDestinationsList);
-    }
-
-    const fetchAvailabilityOptions = async () => {
-        setCurrentOperation( Lang.t('fetchingAvailabilityOptionsMessage') + '…' );
-
-        let url = process.env.REMOTE_BASE_URL + '/availability_options.json';
-
-        await fetch(url)
-            .then(response => response.json())
-            .then(json     => {
-                console.debug('fetchAvailabilityOptions:', json);
-
-                loadAvailabilityOptions(json);
-
-                Cache.set(url, json);
-            })
-            .catch(async exception => {
-                console.warn(exception);
-
-                let cachedData = await Cache.get(url);
-
-                if (cachedData) {
-                    console.warn('fetchAvailabilityOptions: couldn\'t query, falling back to cached response. - ', exception);
-    
-                    setNetworkErrorDetected(true);
-    
-                    loadAvailabilityOptions(cachedData);
-                } else {
-                    console.error('fetchAvailabilityOptions: couldn\'t query:', exception);
-
-                    crash( Lang.t('fetchAvailabilityOptionsError') );
-                }
-            });
+        setAllDestinationsList(newDestinationsList);
     };
 
-    const tryGetCurrentPositionAsync = timeout => {
+    const fetchAvailabilityOptions = async () => await fetchJSONWithCache({
+        url:              process.env.REMOTE_BASE_URL + '/availability_options.json',
+        onLoad:           loadAvailabilityOptions,
+        errorMessage:     Lang.t('fetchAvailabilityOptionsError'),
+        operationMessage: Lang.t('fetchingAvailabilityOptionsMessage')
+    });
+
+    const tryGetCurrentPositionAsync = timeout => new Promise(async (resolve, reject) => {
         timeout = parseInt(timeout);
+        const timeoutHandle = setTimeout(() => reject(new Error(`Couldn't get GPS location after ${timeout / 1000} seconds.`)), timeout);
 
-        console.debug(`tryGetCurrentPositionAsync: timeout = ${timeout}`);
+        try {
+            const location = await Location.getCurrentPositionAsync();
+            clearTimeout(timeoutHandle);
+            resolve(location);
+        } catch (exception) {
+            clearTimeout(timeoutHandle);
+            reject(exception);
+        }
+    });
 
-        return new Promise(async (resolve, reject) => {
-            setTimeout(() => {
-                reject(
-                    new Error(`Couldn\'t get GPS location after ${timeout / 1000} seconds.`)
-                )
-            }, timeout);
-
-            resolve(await Location.getCurrentPositionAsync());
-        });
-    };
-
-    const tryGetLastKnownPositionAsync = timeout => {
+    const tryGetLastKnownPositionAsync = timeout => new Promise(async (resolve, reject) => {
         timeout = parseInt(timeout);
+        const timeoutHandle = setTimeout(() => reject(new Error(`Couldn't get GPS location after ${timeout / 1000} seconds.`)), timeout);
 
-        console.debug(`tryGetLastKnownPositionAsync: timeout = ${timeout}`);
-
-        return new Promise(async (resolve, reject) => {
-            setTimeout(() => {
-                reject(
-                    new Error(`Couldn\'t get GPS location after ${timeout / 1000} seconds.`)
-                )
-            }, timeout);
-
-            resolve(
-                await Location.getLastKnownPositionAsync({
-                    accuracy: Location.Accuracy.Low
-                })
-            );
-        });
-    };
+        try {
+            const location = await Location.getLastKnownPositionAsync({ accuracy: Location.Accuracy.Low });
+            clearTimeout(timeoutHandle);
+            resolve(location);
+        } catch (exception) {
+            clearTimeout(timeoutHandle);
+            reject(exception);
+        }
+    });
 
     const areLocationPermissionsGranted = async () => {
-        if (Platform.OS === 'android') {
-            console.debug('requestForegroundPermissionsAsync: Platform.Version:', Platform.Version);
-
-            if (Platform.Version < 23) { // Marshmallow
-                console.debug(`requestForegroundPermissionsAsync: the Android SDK version is lower than 23 (version ${Platform.Version} detected), skipping location permission request...`);
-
-                return true;
-            }
-        }
+        if (Platform.OS === 'android' && Platform.Version < 23) { return true; }
 
         let { status } = await Location.requestForegroundPermissionsAsync();
 
-        console.debug('requestForegroundPermissionsAsync:', status);
-
         if (status !== 'granted') {
-          crash( Lang.t('locationAccessDeniedMessage') );
-
+          setManualOriginReason( Lang.t('locationAccessDeniedMessage') );
+          setShowManualOriginPicker(true);
           return false;
         }
 
@@ -347,55 +438,33 @@ export default function DestinationPicker({ navigation }) {
     };
 
     const parseOriginStation = name => {
-        const split = normalizeSpecialCharacters( name.toLowerCase() ).replaceAll(
-            new RegExp(/estacion |ciudad /, 'g'),
-            ''
-        ).split(' ');
-
-        if (split.length === 1) {
-            return split[0];
-        }
-
-        return ` ${split[split.length - 1]}`;
+        const split = normalizeSpecialCharacters( name.toLowerCase() ).replaceAll(new RegExp(/estacion |ciudad /, 'g'), '').split(' ');
+        return split.length === 1 ? split[0] : ` ${split[split.length - 1]}`;
     };
 
     const detectOriginStation = async () => {
         setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
 
-        if (!areLocationPermissionsGranted()) { return; }
+        if (!await areLocationPermissionsGranted()) { return; }
 
         let location;
-  
+
         try {
             location = await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
-
-            console.debug('tryGetCurrentPositionAsync: location:', location);
         } catch (exception) {
-            console.warn('getCurrentPositionAsync() failed, retrying with getLastKnownPositionAsync()... - ', exception);
-
             try {
                 location = await tryGetLastKnownPositionAsync(process.env.GPS_FIX_TIMEOUT);
-
-                console.debug('tryGetLastKnownPositionAsync: location:', location);
-            } catch (exception) {
-                console.error('detectOriginStation:', exception);
-
-                switch (exception.code) {
-                    case 'ERR_LOCATION_SETTINGS_UNSATISFIED':
-                        crash( Lang.t('locationAccessDeniedMessage') );
-
-                        break;
-                    default:
-                        crash( Lang.t('locationUnknownErrorMessage') );
-                }
-
+            } catch (lastKnownException) {
+                console.error('detectOriginStation:', exception, lastKnownException);
+                setManualOriginReason( Lang.t('manualOriginFallbackMessage') );
+                setShowManualOriginPicker(true);
                 return;
             }
         }
 
         if (!location) {
-            crash( Lang.t('locationUnknownErrorMessage') );
-
+            setManualOriginReason( Lang.t('manualOriginFallbackMessage') );
+            setShowManualOriginPicker(true);
             return;
         }
 
@@ -403,251 +472,435 @@ export default function DestinationPicker({ navigation }) {
             closestOriginNames    = null;
 
         for (let index = 0; index < trainStationsMap.length; index++) {
-            let station         = trainStationsMap[index],
+            let station = trainStationsMap[index],
                 currentDistance = getPreciseDistance(station, location.coords);
 
-            // console.debug('currentDistance:', currentDistance);
-
-            if (
-                closestDistanceMeters === null
-                ||
-                currentDistance < closestDistanceMeters
-            ) {
+            if (closestDistanceMeters === null || currentDistance < closestDistanceMeters) {
                 closestOriginNames = [ parseOriginStation(station.name) ];
-
-                closestDistanceMeters  = currentDistance;
-
-                if (typeof(station.shortName) != 'undefined') {
-                    closestOriginNames.push( parseOriginStation(station.shortName) );
-                }
+                closestDistanceMeters = currentDistance;
+                if (typeof(station.shortName) != 'undefined') { closestOriginNames.push(parseOriginStation(station.shortName)); }
             }
         }
 
-        console.debug('closestOriginNames:',    closestOriginNames);
-        console.debug('closestDistanceMeters:', closestDistanceMeters);
-
-        if (closestOriginNames === null)  {
-            crash( Lang.t('originDetectionErrorMessage') );
-
+        if (closestOriginNames === null) {
+            setManualOriginReason( Lang.t('originDetectionErrorMessage') );
+            setShowManualOriginPicker(true);
             return;
         }
-
-        console.debug('closestOriginNames:', closestOriginNames);
 
         let mappedDestinations = {};
-
-        destinationsList.forEach(destination => {
-            if (destination.id !== null) {
-                mappedDestinations[destination.id] = normalizeSpecialCharacters(destination.title.toLowerCase());
-            }
+        allDestinationsList.forEach(destination => {
+            if (destination.id !== null) { mappedDestinations[destination.id] = normalizeSpecialCharacters(destination.title.toLowerCase()); }
         });
-
-        console.debug('mappedDestinations:', mappedDestinations);
 
         let nextOriginStation = null;
-
         Object.keys(mappedDestinations).forEach(destination => {
             const destinationTitle = mappedDestinations[destination];
-
-            console.debug(`${JSON.stringify(destinationTitle)} / ${JSON.stringify(closestOriginNames)}`);
-
             if (closestOriginNames.some(name => destinationTitle.indexOf(name) > -1)) {
-                nextOriginStation = destinationsList.find(item => item.id === destination);
+                nextOriginStation = allDestinationsList.find(item => item.id === destination);
             }
         });
 
-        console.debug('nextOriginStation:', nextOriginStation);
-
         if (nextOriginStation === null) {
-            crash( Lang.t('originDetectionErrorMessage') );
-
+            setManualOriginReason( Lang.t('originDetectionErrorMessage') );
+            setShowManualOriginPicker(true);
             return;
         }
 
+        setOriginDistanceMeters(closestDistanceMeters);
         setOriginStation(nextOriginStation);
     };
 
-    const renderItem = ({ item }) => {
-      const backgroundColor = item.id === selectedId ? '#7f3026' : '#be4936';
-      const color           = 'white';
-
-      return (
-        <Item
-          item={item}
-          onPress={() => {
-            console.debug(item);
-
-            setSelectedId(item.id);
-
-            navigation.navigate('NextSchedule', {
-                origin:         originStation,
-                destination:    item,
-                segmentsList:   segmentsList,
-                holidaysList:   holidaysList
-            });
-          }}
-          backgroundColor={backgroundColor}
-          textColor={color}
-          hasLargeDisplay={hasLargeDisplay}
-        />
-      );
+    const selectOrigin = station => {
+        setOriginStation(station);
+        setOriginDistanceMeters(undefined);
+        setShowManualOriginPicker(false);
+        setLoadFinished(true);
     };
 
-    // Runs once during the startup
-    useEffect(() => {
-        setHasLargeDisplay(
-            Dimensions.get('window').width >= process.env.SCREEN_SMALL_WIDTH_PX
-        );
+    const goToDestination = async item => {
+        setSelectedId(item.id);
+        await Preferences.recordRecentTrip(originStation, item);
+        await refreshPreferences();
 
-        Dimensions.addEventListener('change', ({window}) => {
-            console.log('window:', window);
-
-            setHasLargeDisplay(
-                window.width >= process.env.SCREEN_SMALL_WIDTH_PX
-            );
+        navigation.navigate('NextSchedule', {
+            origin:       originStation,
+            destination:  item,
+            segmentsList: segmentsList,
+            holidaysList: holidaysList
         });
+    };
 
-        const fetchData = async () => {
-            await verifyCachedResources();
-            await fetchTrainStationsMap();
-            await fetchHolidaysList();
-            await fetchAvailabilityOptions();
-        };
+    const toggleFavorite = async item => {
+        await Preferences.toggleFavoriteTrip(originStation, item);
+        await refreshPreferences();
+    };
 
-        fetchData();
+    const retryStartup = async () => {
+        setCrashMessage(undefined);
+        setLoadFinished(false);
+        setShowManualOriginPicker(false);
+        setManualOriginReason(undefined);
+        setOriginStation(undefined);
+        setTrainStationsMap(undefined);
+        setAllDestinationsList(undefined);
+        await bootstrap();
+    };
+
+    const bootstrap = async () => {
+        await refreshPreferences();
+        await verifyCachedResources();
+        await Promise.all([ fetchTrainStationsMap(), fetchHolidaysList(), fetchAvailabilityOptions() ]);
+    };
+
+    useEffect(() => {
+        if (previewMode) {
+            setAllDestinationsList(previewState.stations);
+            setSegmentsList({ 1: 'Lunes a viernes', 2: 'Sábado', 3: 'Domingo' });
+            setHolidaysList([]);
+            setFavoriteTrips(previewState.favorites);
+            setRecentTrips(previewState.recents);
+            setCurrentOperation(Lang.t('fetchingAvailabilityOptionsMessage') + '…');
+
+            if (previewMode === 'manual' || previewMode === 'watch-manual') {
+                setManualOriginReason(Lang.t('manualOriginFallbackMessage'));
+                setShowManualOriginPicker(true);
+                return;
+            }
+
+            if (previewMode === 'loading' || previewMode === 'watch-loading') { return; }
+
+            setOriginStation(previewState.origin);
+            setOriginDistanceMeters(450);
+            setLoadFinished(true);
+            return;
+        }
+
+        bootstrap();
     }, []);
 
-    // Runs when the origin station is available
     useEffect(() => {
         if (typeof(originStation) == 'undefined') { return; }
-
-        console.debug('originStation:', originStation);
-
         setLoadFinished(true);
     }, [ originStation ]);
 
     useEffect(() => {
-        if (!loadFinished) { return; }
-
-        // Remove the origin station
-        setDestinationsList(
-            destinationsList.filter(item => (item.id != originStation.id))
-        );
-    }, [ loadFinished ]);
-
-    // Runs when the train stations map gets populated
-    useEffect(() => {
-        if (
-            typeof(trainStationsMap) == 'undefined'
-            ||
-            typeof(destinationsList) == 'undefined'
-            ||
-            typeof(originStation) != 'undefined'
-        ) { return; }
-
+        if (typeof(trainStationsMap) == 'undefined' || typeof(allDestinationsList) == 'undefined' || typeof(originStation) != 'undefined' || showManualOriginPicker || previewMode) { return; }
         detectOriginStation();
-    }, [ trainStationsMap, destinationsList ]);
+    }, [ trainStationsMap, allDestinationsList, showManualOriginPicker ]);
 
-    if (typeof(crashMessage) != 'undefined') {
-        console.error(crashMessage);
+    const renderDestinationItem = ({ item }) => (
+        <StationRow
+            item={item}
+            onPress={() => goToDestination(item)}
+            accessibilityHint={Lang.t('selectThisDestinationHint').replace('%s', item.title)}
+            onFavoritePress={() => toggleFavorite(item)}
+            isFavorite={currentOriginFavoriteDestinationIds.indexOf(item.id) > -1}
+            selected={item.id === selectedId}
+            compact={watchLayout}
+        />
+    );
 
-        return (
-            <GestureRecognizer style={{ flex: 1 }} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
-                <SafeAreaView style={styles.list}>
-                    <Text style={styles.title}>
-                        {crashMessage}
-                    </Text>
-                </SafeAreaView>
-            </GestureRecognizer>
+    const renderOriginItem = ({ item }) => (
+        <StationRow
+            item={item}
+            onPress={() => selectOrigin(item)}
+            accessibilityHint={Lang.t('selectThisOriginHint').replace('%s', item.title)}
+            compact={watchLayout}
+        />
+    );
+
+    const renderWatchStationStack = (items, renderItem) => (
+        <View>
+            {items.map((item, index) => (
+                <View key={item.id}>
+                    {index > 0 ? <View style={{ height: 6 }} /> : null}
+                    {renderItem({ item })}
+                </View>
+            ))}
+            <View style={{ height: watchListEndPadding }} />
+        </View>
+    );
+
+    if (crashMessage) {
+        return withOptionalSwipeExit(
+                <AppScreen>
+                    <TransitCard>
+                        <Text variant="titleMedium" style={styles.centerText}>{crashMessage}</Text>
+                        <Button mode="contained" onPress={retryStartup}>{Lang.t('retryBtnLabel')}</Button>
+                    </TransitCard>
+                </AppScreen>
         );
     }
 
-    return (
-        <GestureRecognizer style={{ flex: 1 }} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
-            <SafeAreaView style={styles.list}>
-                <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
+    if (previewMode === 'loading' || (!loadFinished && !showManualOriginPicker)) {
+        return <LoadingState operation={currentOperation} />;
+    }
 
-                {
-                    loadFinished
-                        ? <View style={{ width: '100%' }}>
-                            <Text
-                                adjustsFontSizeToFit
-                                style={{
-                                    color: 'white',
-                                    textAlign: 'center',
-                                    paddingBottom:  isWatch ? 8 : 12,
-                                    paddingTop: (
-                                        isWatch
-                                            ? PixelRatio.getFontScale() * 24
-                                            : 0
-                                    )
-                                }}
-                            >
-                                { Lang.t('selectDestinationHint') }
-                            </Text>
-                            {
-                                <FlatList
-                                    key={hasLargeDisplay}
-                                    data={destinationsList}
-                                    renderItem={renderItem}
-                                    keyExtractor={item => item.id}
-                                    extraData={selectedId}
-                                    numColumns={
-                                        hasLargeDisplay
-                                            ? 2
-                                            : 1
-                                    }
-                                    columnWrapperStyle={
-                                        hasLargeDisplay
-                                            ? { gap: 6 }
-                                            : undefined
-                                    }
-                                />
-                            }
-                          </View>
-                        : <View>
-                            <ActivityIndicator size="12" color="#be4936" />
-                            <Text style={{
-                                color: 'white',
-                                textAlign: 'center'
-                            }}>
-                                {currentOperation}
-                            </Text>
+    if (showManualOriginPicker) {
+        return withOptionalSwipeExit(
+                <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
+                    <View style={[ styles.screenHeader, watchLayout ? styles.screenHeaderWatch : undefined ]}>
+                        <View style={[ styles.headerTitleBlock, watchLayout ? styles.headerTitleBlockWatch : undefined ]}>
+                            <Text variant={watchLayout ? 'titleMedium' : 'headlineSmall'} style={[ styles.headerTitle, watchLayout ? styles.watchText : undefined ]}>{Lang.t('chooseOriginHint')}</Text>
+                            <Text variant={watchLayout ? 'bodySmall' : 'bodyMedium'} style={watchLayout ? styles.watchText : undefined}>{manualOriginReason || Lang.t('manualOriginFallbackMessage')}</Text>
                         </View>
-                }
-            </SafeAreaView>
-        </GestureRecognizer>
+                        {!watchLayout ? <ThemeMenu /> : null}
+                    </View>
+                    {watchLayout ? renderWatchStationStack(allDestinationsList || [], renderOriginItem) : (
+                        <FlatList
+                            data={allDestinationsList || []}
+                            renderItem={renderOriginItem}
+                            keyExtractor={item => item.id}
+                            scrollEnabled={false}
+                            showsVerticalScrollIndicator={false}
+                            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                        />
+                    )}
+                </AppScreen>
+        );
+    }
+
+    const quickTrips = [
+        ...favoriteDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('favoritesSectionTitle') })),
+        ...recentDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('recentsSectionTitle') }))
+    ];
+
+    return withOptionalSwipeExit(
+            <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
+                {!watchLayout ? (
+                    <View style={styles.screenHeader}>
+                        <View style={styles.headerTitleBlock}>
+                            <Text variant="headlineSmall" style={styles.headerTitle}>{Lang.t('selectDestinationHint')}</Text>
+                            <Text variant="bodyMedium">{originStation?.title}</Text>
+                        </View>
+                        <ThemeMenu />
+                    </View>
+                ) : null}
+
+                <TransitCard style={[ styles.routePanel, watchLayout ? styles.routePanelWatch : undefined ]}>
+                    <View style={[ styles.routePanelTop, watchLayout ? styles.routePanelTopWatch : undefined ]}>
+                        {!watchLayout ? <View style={[ styles.routeIcon, { backgroundColor: theme.accent } ]}><Text variant="titleMedium" style={{ color: theme.textInverse }}>🚆</Text></View> : null}
+                        <View style={styles.routePanelText}>
+                            <Text variant={watchLayout ? 'labelSmall' : 'labelMedium'} style={watchLayout ? styles.watchText : undefined}>{Lang.t('fromStationLabel')}</Text>
+                            <Text variant={watchLayout ? 'titleMedium' : 'headlineSmall'} style={[ styles.routeOrigin, watchLayout ? styles.watchText : undefined ]} numberOfLines={1}>{originStation?.title}</Text>
+                        </View>
+                    </View>
+                    <View style={[ styles.routePanelActions, watchLayout ? styles.routePanelActionsWatch : undefined ]}>
+                        {watchLayout ? (
+                            <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={Lang.t('changeOriginBtnLabel')}
+                                onPress={() => setShowManualOriginPicker(true)}
+                                style={[ styles.changeOriginWatch, { borderColor: theme.paperTheme.colors.outline } ]}
+                            >
+                                <Text variant="labelLarge" style={styles.changeOriginTextWatch}>📍 {Lang.t('changeOriginBtnLabel')}</Text>
+                            </Pressable>
+                        ) : (
+                            <Button mode="outlined" icon="map-marker" onPress={() => setShowManualOriginPicker(true)}>{Lang.t('changeOriginBtnLabel')}</Button>
+                        )}
+                        <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
+                    </View>
+                    {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
+                        <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
+                    ) : null}
+                    {isAndroidDynamicColorAvailable && !watchLayout ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
+                </TransitCard>
+
+                {quickTrips.length > 0 && !watchLayout ? (
+                    <View>
+                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRouteList}>
+                            {quickTrips.map(trip => (
+                                <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                            ))}
+                        </ScrollView>
+                    </View>
+                ) : null}
+
+                <View>
+                    {!watchLayout ? <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text> : null}
+                    {watchLayout ? renderWatchStationStack(destinationList, renderDestinationItem) : (
+                        <FlatList
+                            data={standardDestinations}
+                            renderItem={renderDestinationItem}
+                            keyExtractor={item => item.id}
+                            extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
+                            scrollEnabled={false}
+                            showsVerticalScrollIndicator={false}
+                            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                        />
+                    )}
+                </View>
+            </AppScreen>
     );
 }
 
 const styles = StyleSheet.create({
-    listItem: { textAlign: 'center' },
-    list: {
-      display: 'flex',
-      flexDirection: 'row',
-      width: '100%',
-      flex: 1,
-      backgroundColor: '#000',
-      alignItems: 'center',
-      justifyContent: 'center',
-      alignSelf: 'center',
-      marginTop: (StatusBar.currentHeight || 0),
-      marginVertical: 0,
-      paddingVertical: 0
+    centerContent: {
+        justifyContent: 'center',
+        alignItems: 'center'
     },
-    itemLarge: {
-      width: '50%',
-      paddingVertical: 8,
-      marginBottom: 6
-    },
-    item: {
-      width: '100%',
-      paddingVertical: 8,
-      marginBottom: 6
-    },
-    title: {
-        color: 'white',
+    centerText: {
         textAlign: 'center'
     },
+    loadingCard: {
+        width: '100%',
+        maxWidth: 420,
+        alignSelf: 'center'
+    },
+    stackGap: {
+        gap: 12
+    },
+    stackGapWatch: {
+        gap: 4
+    },
+    screenHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginBottom: 2
+    },
+    headerTitleBlock: {
+        flex: 1
+    },
+    headerTitleBlockWatch: {
+        maxWidth: 240,
+        alignSelf: 'center'
+    },
+    screenHeaderWatch: {
+        justifyContent: 'center'
+    },
+    headerTitle: {
+        fontWeight: '900'
+    },
+    watchText: {
+        textAlign: 'center'
+    },
+    routePanel: {
+        marginBottom: 4
+    },
+    routePanelWatch: {
+        marginBottom: 0
+    },
+    routePanelTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14
+    },
+    routePanelTopWatch: {
+        justifyContent: 'center',
+        gap: 0
+    },
+    routeIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    routePanelText: {
+        flex: 1
+    },
+    routeOrigin: {
+        fontWeight: '900'
+    },
+    routePanelActions: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 4
+    },
+    routePanelActionsWatch: {
+        justifyContent: 'center',
+        marginTop: 2
+    },
+    changeOriginWatch: {
+        height: 32,
+        borderWidth: 1,
+        borderRadius: 16,
+        paddingHorizontal: 10,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    changeOriginTextWatch: {
+        fontSize: 14,
+        lineHeight: 18,
+        fontWeight: '800'
+    },
+    sectionTitle: {
+        marginBottom: 8,
+        fontWeight: '800'
+    },
+    sectionTitleWatch: {
+        marginBottom: 6,
+        textAlign: 'center'
+    },
+    quickRouteList: {
+        gap: 10,
+        paddingRight: 8,
+        paddingBottom: 4
+    },
+    quickRouteCard: {
+        width: 220,
+        borderRadius: 22,
+        overflow: 'hidden'
+    },
+    quickRouteItem: {
+        minHeight: 86
+    },
+    stationSurface: {
+        borderRadius: 18,
+        overflow: 'hidden'
+    },
+    stationSurfaceWatch: {
+        width: '92%',
+        alignSelf: 'center',
+        borderRadius: 24,
+        minHeight: 52,
+        position: 'relative'
+    },
+    stationRowPressableWatch: {
+        minHeight: 52,
+        paddingLeft: 16,
+        paddingRight: 52,
+        justifyContent: 'center'
+    },
+    stationRow: {
+        minHeight: 58,
+        paddingVertical: 4
+    },
+    stationRowWatch: {
+        minHeight: 52,
+        paddingVertical: 0,
+        paddingLeft: 12,
+        paddingRight: 42
+    },
+    stationTitle: {
+        fontWeight: '700'
+    },
+    stationTitleWatch: {
+        fontSize: 16,
+        lineHeight: 20,
+        fontWeight: '800',
+        textAlign: 'left'
+    },
+    stationStarFloating: {
+        position: 'absolute',
+        top: 3,
+        right: 5,
+        margin: 0,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    stationStarText: {
+        fontSize: 30,
+        lineHeight: 34,
+        fontWeight: '700'
+    }
 });
-

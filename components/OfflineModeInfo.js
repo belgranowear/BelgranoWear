@@ -1,49 +1,30 @@
-import { SafeAreaView, StyleSheet, Text, View, Button } from 'react-native';
+import React from 'react';
+
+import { Button, Text } from 'react-native-paper';
 
 import Lang from '../includes/Lang';
-
-const Separator = () => <View style={styles.separator} />;
+import { AppScreen, TransitCard } from './ui';
 
 export default function OfflineModeInfo({ navigation }) {
     return (
-        <SafeAreaView style={styles.container}>
-          <Text style={styles.centeredText}>
-            { Lang.t('offlineModeInfoMessage') }
-          </Text>
+        <AppScreen>
+            <TransitCard>
+                <Text variant="headlineSmall" style={{ textAlign: 'center', fontWeight: '900' }}>
+                    { Lang.t('screenOfflineModeInfoName') }
+                </Text>
 
-          <Separator />
+                <Text variant="bodyLarge" style={{ textAlign: 'center' }}>
+                    { Lang.t('offlineModeInfoMessage') }
+                </Text>
 
-          <Button
-            title={ Lang.t('gotItBtnLabel') }
-            color="#be4936"
-            onPress={() => { navigation.goBack(); }}
-          ></Button>
-        </SafeAreaView>
+                <Button
+                    mode="contained"
+                    onPress={() => { navigation.goBack(); }}
+                    accessibilityHint={Lang.t('goBackBtnLabel')}
+                >
+                    { Lang.t('gotItBtnLabel') }
+                </Button>
+            </TransitCard>
+        </AppScreen>
     );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    width: '100%',
-    color: '#fff',
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginTop: 0,
-    paddingVertical: 6,
-    paddingHorizontal: 6
-  },
-  centeredText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'normal',
-    textAlign: 'center'
-  },
-  separator: {
-    marginVertical: 8,
-    borderBottomColor: '#737373',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  }
-});
