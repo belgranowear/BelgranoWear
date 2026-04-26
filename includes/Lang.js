@@ -83,13 +83,17 @@ Lang.translations   = {
         nextDeparturesTitle: 'Next departures',
         reverseRouteBtnLabel: 'Reverse route',
         remindMeBtnLabel: 'Remind me 5 min before',
+        remindMeShortBtnLabel: 'Remind me',
         reminderSetMessage: 'Reminder set',
+        reminderSetShortMessage: 'Reminder set',
         reminderUnavailableMessage: 'This train is too soon for a 5 minute reminder.',
+        reminderUnavailableShortMessage: 'Too soon',
         reminderAlertTitle: 'Train reminder',
         reminderAlertBody: 'Your train from %s to %s leaves at %s.',
         manualOriginFallbackMessage: 'We could not detect your origin automatically. Please choose it manually.',
         materialYouEnabledLabel: 'Material You',
         notificationPermissionDeniedMessage: 'Notification permission is required to schedule reminders.',
+        notificationPermissionDeniedShortMessage: 'Permission needed',
         notificationChannelName: 'Departure reminders'
     },
     es: {
@@ -156,13 +160,17 @@ Lang.translations   = {
         nextDeparturesTitle: 'Próximas salidas',
         reverseRouteBtnLabel: 'Invertir ruta',
         remindMeBtnLabel: 'Avisarme 5 min antes',
+        remindMeShortBtnLabel: 'Avisarme',
         reminderSetMessage: 'Recordatorio activado',
+        reminderSetShortMessage: 'Activado',
         reminderUnavailableMessage: 'Este tren sale demasiado pronto para avisarte 5 minutos antes.',
+        reminderUnavailableShortMessage: 'Sale muy pronto',
         reminderAlertTitle: 'Recordatorio de tren',
         reminderAlertBody: 'Tu tren desde %s hacia %s sale a las %s.',
         manualOriginFallbackMessage: 'No pudimos detectar tu origen automáticamente. Elegilo manualmente.',
         materialYouEnabledLabel: 'Material You',
         notificationPermissionDeniedMessage: 'Necesitamos permiso de notificaciones para programar recordatorios.',
+        notificationPermissionDeniedShortMessage: 'Falta permiso',
         notificationChannelName: 'Recordatorios de salida'
     }
 }

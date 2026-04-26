@@ -6,6 +6,7 @@ import {
   ActivityIndicator as RNActivityIndicator,
   Animated,
   AppState,
+  Dimensions,
   Platform,
   StyleSheet,
   Vibration,
@@ -76,12 +77,27 @@ const formatDepartureDelta = departure => {
   return formatDurationUnit(Math.max(1, minutes), 'minute', 'minutes');
 };
 
+const compactReminderStatus = message => {
+  if (message === Lang.t('reminderUnavailableMessage')) { return Lang.t('reminderUnavailableShortMessage'); }
+  if (message === Lang.t('notificationPermissionDeniedMessage')) { return Lang.t('notificationPermissionDeniedShortMessage'); }
+  if (message === Lang.t('reminderSetMessage')) { return Lang.t('reminderSetShortMessage'); }
+
+  return message;
+};
+
 export default function NextSchedule({ navigation, route }) {
     const { theme }  = useTheme();
     const responsive = useResponsiveMetrics();
     const previewMode = getUIPreviewMode();
     const watchLayout = responsive.isWatch || isWatchUIPreview();
     const showInScreenBack = false;
+    const screenDimensions = Dimensions.get('screen');
+    const watchScreenShortestSide = watchLayout
+      ? Math.max(responsive.shortestSide, Math.min(screenDimensions.width, screenDimensions.height))
+      : responsive.shortestSide;
+    const watchReminderButtonWidth = watchLayout ? Math.round(watchScreenShortestSide * 0.44) : undefined;
+    const watchReminderButtonOffset = watchLayout ? Math.max(0, Math.round((watchScreenShortestSide - watchReminderButtonWidth) / 2)) : 0;
+    const watchReminderButtonNudge = watchLayout ? Math.round(watchScreenShortestSide * 0.24) : 0;
 
     const [ crashMessage,            setCrashMessage            ] = useState();
     const [ remainingTimeMillis,     setRemainingTimeMillis     ] = useState();
@@ -450,6 +466,27 @@ export default function NextSchedule({ navigation, route }) {
       );
     }
 
+    const reminderButton = (
+      <Button
+        mode="contained-tonal"
+        icon={watchLayout ? undefined : 'bell-outline'}
+        onPress={setDepartureReminder}
+        compact={watchLayout}
+        style={watchLayout ? styles.reminderButtonWatch : undefined}
+        contentStyle={watchLayout ? styles.reminderButtonContentWatch : undefined}
+        labelStyle={watchLayout ? styles.reminderButtonLabelWatch : undefined}
+      >
+        {watchLayout ? Lang.t('remindMeShortBtnLabel') : Lang.t('remindMeBtnLabel')}
+      </Button>
+    );
+    const watchReminderFeedback = reminderStatus ? (
+      <View style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft } ]}>
+        <Text numberOfLines={2} style={[ styles.watchReminderFeedbackText, { color: theme.accentStrong } ]}>
+          {compactReminderStatus(reminderStatus)}
+        </Text>
+      </View>
+    ) : null;
+
     return (
         <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
           <View style={[ styles.headerRow, watchLayout ? styles.headerRowWatch : undefined ]}>
@@ -472,7 +509,7 @@ export default function NextSchedule({ navigation, route }) {
             </View> : null}
             {!watchLayout ? <Text variant="labelLarge" style={styles.boardLabel}>{Lang.t('nextTripScheduleForMessage')}</Text> : null}
             <Animated.View style={{ opacity: shouldLoopAnimation ? nextTripViewOpacity : 1 }}>
-              <Text variant={watchLayout ? 'displayMedium' : 'displayLarge'} style={styles.heroTime} accessibilityLabel={`${sourceLabel(scheduleSource)} ${nextTripTime.format('HH:mm')}`}>
+              <Text variant={watchLayout ? 'displayMedium' : 'displayLarge'} style={[ styles.heroTime, watchLayout ? styles.heroTimeWatch : undefined ]} accessibilityLabel={`${sourceLabel(scheduleSource)} ${nextTripTime.format('HH:mm')}`}>
                 {nextTripTime.format('HH:mm')}
               </Text>
             </Animated.View>
@@ -509,10 +546,23 @@ export default function NextSchedule({ navigation, route }) {
             {!watchLayout ? (
               <Button mode="outlined" icon="swap-horizontal" onPress={reverseRoute} compact={watchLayout}>{Lang.t('reverseRouteBtnLabel')}</Button>
             ) : null}
-            <Button mode="contained-tonal" icon="bell-outline" onPress={setDepartureReminder} compact={watchLayout}>{Lang.t('remindMeBtnLabel')}</Button>
+            {watchLayout ? (
+              <View
+                style={[
+                  styles.watchReminderButtonFrame,
+                  {
+                    width: watchReminderButtonWidth,
+                    marginLeft: watchReminderButtonOffset,
+                    transform: [{ translateX: watchReminderButtonNudge }]
+                  }
+                ]}
+              >
+                {watchReminderFeedback || reminderButton}
+              </View>
+            ) : reminderButton}
           </View>
 
-          {reminderStatus ? <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus}</StatusPill> : null}
+          {!watchLayout && reminderStatus ? <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus}</StatusPill> : null}
 
           {!watchLayout && shouldLoopAnimation ? <RNActivityIndicator color={theme.accent} style={styles.haTimeLoader} /> : null}
         </AppScreen>
@@ -536,7 +586,7 @@ const styles = StyleSheet.create({
     gap: 12
   },
   stackGapWatch: {
-    gap: 8,
+    gap: 5,
     justifyContent: 'flex-start'
   },
   headerRow: {
@@ -546,7 +596,7 @@ const styles = StyleSheet.create({
   },
   headerRowWatch: {
     justifyContent: 'center',
-    minHeight: 52
+    minHeight: 40
   },
   headerActionSlot: {
     width: 48,
@@ -561,19 +611,25 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   routeTitleWatch: {
-    fontWeight: '900'
+    fontWeight: '900',
+    fontSize: 21,
+    lineHeight: 25
   },
   routeSubtitle: {
     textAlign: 'center'
   },
   routeSubtitleWatch: {
-    opacity: 0.9
+    opacity: 0.9,
+    fontSize: 16,
+    lineHeight: 19
   },
   departureBoard: {
     alignItems: 'stretch'
   },
   departureBoardWatch: {
-    alignItems: 'center'
+    alignItems: 'center',
+    marginTop: 0,
+    marginBottom: 0
   },
   boardTopRow: {
     flexDirection: 'row',
@@ -593,18 +649,26 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginVertical: 4
   },
+  heroTimeWatch: {
+    marginTop: 0,
+    marginBottom: 0
+  },
   remainingPill: {
     alignSelf: 'center'
   },
   remainingTextWatch: {
     textAlign: 'center',
     fontWeight: '800',
-    marginTop: 2
+    marginTop: 2,
+    fontSize: 20,
+    lineHeight: 24
   },
   sourceTextWatch: {
     textAlign: 'center',
     opacity: 0.62,
-    marginTop: 2
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 16
   },
   sectionTitle: {
     fontWeight: '800',
@@ -625,7 +689,46 @@ const styles = StyleSheet.create({
   },
   actionsWatch: {
     flexDirection: 'column',
-    alignItems: 'center'
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 4,
+    overflow: 'visible'
+  },
+  watchReminderButtonFrame: {
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    overflow: 'visible'
+  },
+  reminderButtonWatch: {
+    width: '100%',
+    borderRadius: 22,
+    alignSelf: 'center'
+  },
+  reminderButtonContentWatch: {
+    minHeight: 36,
+    height: 36,
+    paddingHorizontal: 0
+  },
+  reminderButtonLabelWatch: {
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: '800',
+    marginVertical: 0,
+    marginHorizontal: 0
+  },
+  watchReminderFeedback: {
+    width: '100%',
+    minHeight: 36,
+    borderRadius: 18,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  watchReminderFeedbackText: {
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 15,
+    fontWeight: '800'
   },
   statusMessage: {
     alignSelf: 'center'
