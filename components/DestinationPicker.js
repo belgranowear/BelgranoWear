@@ -103,7 +103,11 @@ function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityH
                     <Pressable
                         accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
                         accessibilityRole="button"
-                        onPress={onFavoritePress}
+                        accessibilityState={{ selected: isFavorite }}
+                        onPress={event => {
+                            event?.stopPropagation?.();
+                            onFavoritePress();
+                        }}
                         hitSlop={8}
                         style={[
                             styles.stationStarFloating,
@@ -249,6 +253,19 @@ export default function DestinationPicker({ navigation }) {
         &&
         recentDestinations.findIndex(recent => recent.id === item.id) === -1
     )), [ destinationList, currentOriginFavoriteDestinationIds, recentDestinations ]);
+
+    const watchDestinations = useMemo(() => {
+        if (!watchLayout) { return destinationList; }
+
+        const favoriteIds = currentOriginFavoriteDestinationIds;
+        const favoriteIdsSet = new Set(favoriteIds);
+        const favoriteItems = favoriteIds
+            .map(id => destinationList.find(item => item.id === id))
+            .filter(Boolean);
+        const remainingItems = destinationList.filter(item => !favoriteIdsSet.has(item.id));
+
+        return [ ...favoriteItems, ...remainingItems ];
+    }, [ watchLayout, destinationList, currentOriginFavoriteDestinationIds ]);
 
     const crash = message => { setCrashMessage(message); };
 
@@ -720,7 +737,7 @@ export default function DestinationPicker({ navigation }) {
 
                 <View>
                     {!watchLayout ? <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text> : null}
-                    {watchLayout ? renderWatchStationStack(destinationList, renderDestinationItem) : (
+                    {watchLayout ? renderWatchStationStack(watchDestinations, renderDestinationItem) : (
                         <FlatList
                             data={standardDestinations}
                             renderItem={renderDestinationItem}
