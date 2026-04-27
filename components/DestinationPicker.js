@@ -248,15 +248,7 @@ export default function DestinationPicker({ navigation }) {
             .slice(0, 3);
     }, [ recentTrips, destinationList, originStation, currentOriginFavoriteDestinationIds ]);
 
-    const standardDestinations = useMemo(() => destinationList.filter(item => (
-        currentOriginFavoriteDestinationIds.indexOf(item.id) === -1
-        &&
-        recentDestinations.findIndex(recent => recent.id === item.id) === -1
-    )), [ destinationList, currentOriginFavoriteDestinationIds, recentDestinations ]);
-
-    const watchDestinations = useMemo(() => {
-        if (!watchLayout) { return destinationList; }
-
+    const prioritizedDestinations = useMemo(() => {
         const favoriteIds = currentOriginFavoriteDestinationIds;
         const favoriteIdsSet = new Set(favoriteIds);
         const favoriteItems = favoriteIds
@@ -265,7 +257,7 @@ export default function DestinationPicker({ navigation }) {
         const remainingItems = destinationList.filter(item => !favoriteIdsSet.has(item.id));
 
         return [ ...favoriteItems, ...remainingItems ];
-    }, [ watchLayout, destinationList, currentOriginFavoriteDestinationIds ]);
+    }, [ destinationList, currentOriginFavoriteDestinationIds ]);
 
     const crash = message => { setCrashMessage(message); };
 
@@ -772,9 +764,9 @@ export default function DestinationPicker({ navigation }) {
 
                 <View>
                     {!watchLayout ? <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text> : null}
-                    {watchLayout ? renderWatchStationStack(watchDestinations, renderDestinationItem) : (
+                    {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem) : (
                         <FlatList
-                            data={standardDestinations}
+                            data={prioritizedDestinations}
                             renderItem={renderDestinationItem}
                             keyExtractor={item => item.id}
                             extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
