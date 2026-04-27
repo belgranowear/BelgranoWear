@@ -15,6 +15,8 @@ import { StatusBar } from 'expo-status-bar';
 import DestinationPicker from './components/DestinationPicker';
 import NextSchedule      from './components/NextSchedule';
 import OfflineModeInfo   from './components/OfflineModeInfo';
+import Settings          from './components/Settings';
+import About             from './components/About';
 
 import Lang from './includes/Lang';
 import { ThemeProvider, useTheme } from './includes/Theme';
@@ -51,6 +53,8 @@ function AppNavigator() {
           <Stack.Screen name='DestinationPicker' component={DestinationPicker} options={{ title: Lang.t('screenDestinationPickerName') }}></Stack.Screen>
           <Stack.Screen name='NextSchedule'      component={NextSchedule}      initialParams={previewParams} options={{ title: Lang.t('screenNextScheduleName')      }}></Stack.Screen>
           <Stack.Screen name='OfflineModeInfo'   component={OfflineModeInfo}   options={{ title: Lang.t('screenOfflineModeInfoName')   }}></Stack.Screen>
+          <Stack.Screen name='Settings'          component={Settings}          options={{ title: Lang.t('screenSettingsName')          }}></Stack.Screen>
+          <Stack.Screen name='About'             component={About}             options={{ title: Lang.t('screenAboutName')             }}></Stack.Screen>
         </Stack.Navigator>
       </NavigationContainer>
     </>

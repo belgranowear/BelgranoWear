@@ -25,7 +25,6 @@ import {
   Button,
   IconButton,
   List,
-  Menu,
   Surface,
   Text
 } from 'react-native-paper';
@@ -43,36 +42,27 @@ const PROXIMITY_WARNING_METERS = 1200;
 
 const formatDistanceKm = meters => (meters / 1000).toFixed(1);
 
-const themeModeLabel = themeMode => ({
-    system: Lang.t('themeModeSystem'),
-    light:  Lang.t('themeModeLight'),
-    dark:   Lang.t('themeModeDark')
-}[themeMode] || Lang.t('themeModeSystem'));
-
 const tripDestination = trip => trip.destination;
 
-function ThemeMenu() {
-    const { themeMode, setThemeMode } = useTheme();
-    const [ visible, setVisible ] = useState(false);
+function SettingsButton({ navigation }) {
+    const { theme } = useTheme();
 
     return (
-        <Menu
-            visible={visible}
-            onDismiss={() => setVisible(false)}
-            anchor={<IconButton icon="dots-vertical" accessibilityLabel={Lang.t('themeModeButtonLabel').replace('%s', themeModeLabel(themeMode))} onPress={() => setVisible(true)} />}
+        <Pressable
+            onPress={() => navigation.navigate('Settings')}
+            accessibilityRole="button"
+            accessibilityLabel={Lang.t('settingsButtonLabel')}
+            hitSlop={8}
+            style={({ pressed }) => [
+                styles.settingsButton,
+                {
+                    backgroundColor: theme.accentSoft,
+                    opacity: pressed ? 0.72 : 1
+                }
+            ]}
         >
-            {[ 'system', 'light', 'dark' ].map(mode => (
-                <Menu.Item
-                    key={mode}
-                    leadingIcon={themeMode === mode ? 'check' : undefined}
-                    onPress={() => {
-                        setVisible(false);
-                        setThemeMode(mode);
-                    }}
-                    title={themeModeLabel(mode)}
-                />
-            ))}
-        </Menu>
+            <Text style={[ styles.settingsButtonIcon, { color: theme.accentStrong } ]}>⚙</Text>
+        </Pressable>
     );
 }
 
@@ -654,7 +644,7 @@ export default function DestinationPicker({ navigation }) {
         />
     );
 
-    const renderWatchStationStack = (items, renderItem) => (
+    const renderWatchStationStack = (items, renderItem, footer = null) => (
         <View>
             {items.map((item, index) => (
                 <View key={item.id}>
@@ -662,6 +652,7 @@ export default function DestinationPicker({ navigation }) {
                     {renderItem({ item })}
                 </View>
             ))}
+            {footer ? <View style={styles.watchSettingsFooter}>{footer}</View> : null}
             <View style={{ height: watchListEndPadding }} />
         </View>
     );
@@ -689,7 +680,7 @@ export default function DestinationPicker({ navigation }) {
                             <Text variant={watchLayout ? 'titleMedium' : 'headlineSmall'} style={[ styles.headerTitle, watchLayout ? styles.watchText : undefined ]}>{Lang.t('chooseOriginHint')}</Text>
                             <Text variant={watchLayout ? 'bodySmall' : 'bodyMedium'} style={watchLayout ? styles.watchText : undefined}>{manualOriginReason || Lang.t('manualOriginFallbackMessage')}</Text>
                         </View>
-                        {!watchLayout ? <ThemeMenu /> : null}
+                        {!watchLayout ? <SettingsButton navigation={navigation} /> : null}
                     </View>
                     {watchLayout ? renderWatchStationStack(allDestinationsList || [], renderOriginItem) : (
                         <FlatList
@@ -718,7 +709,7 @@ export default function DestinationPicker({ navigation }) {
                             <Text variant="headlineSmall" style={styles.headerTitle}>{Lang.t('selectDestinationHint')}</Text>
                             <Text variant="bodyMedium">{originStation?.title}</Text>
                         </View>
-                        <ThemeMenu />
+                        <SettingsButton navigation={navigation} />
                     </View>
                 ) : null}
 
@@ -764,7 +755,7 @@ export default function DestinationPicker({ navigation }) {
 
                 <View>
                     {!watchLayout ? <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text> : null}
-                    {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem) : (
+                    {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem, <SettingsButton navigation={navigation} />) : (
                         <FlatList
                             data={prioritizedDestinations}
                             renderItem={renderDestinationItem}
@@ -805,6 +796,24 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         gap: 12,
         marginBottom: 2
+    },
+    settingsButton: {
+        margin: 0,
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    settingsButtonIcon: {
+        fontSize: 24,
+        lineHeight: 28,
+        fontWeight: '800'
+    },
+    watchSettingsFooter: {
+        alignItems: 'center',
+        paddingTop: 12,
+        paddingBottom: 6
     },
     headerTitleBlock: {
         flex: 1
