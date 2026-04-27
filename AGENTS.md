@@ -19,6 +19,11 @@ Use JavaScript with React function components and hooks. Keep component files in
 ## Testing Guidelines
 No automated test suite is currently configured. Before opening a PR, run the app through Expo and perform a Docker debug build. Manually verify location permission handling, offline cache fallback, Spanish/English text, small-screen WearOS layouts, and the destination-to-schedule flow.
 
+For any UI work, you MUST validate the layout across the full supported device range before considering the task complete:
+- Full mobile: both smartphone-sized and tablet-sized layouts.
+- Smartwatch: both square displays and rounded WearOS displays.
+- Include screenshots or device/emulator notes in the PR when the change affects visible UI, especially for rounded WearOS clipping/scrolling behavior.
+
 ## Commit & Pull Request Guidelines
 Recent commits use short, imperative summaries with an optional scope, such as `NextSchedule: fix font scaling for alternative sizes on WearOS` or `Bump bundle version to 1.4.2 (39)`. Keep commits focused. PRs should describe user-visible changes, list manual verification steps, link related issues, and include screenshots or device notes for UI changes, especially WearOS changes.
 
