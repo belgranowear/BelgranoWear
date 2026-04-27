@@ -347,6 +347,10 @@ export default function DestinationPicker({ navigation }) {
             if (typeof(station.tags.name) == 'undefined') { return; }
             if (((typeof(station.lat) == 'undefined' || typeof(station.lon) == 'undefined')) && typeof(station.center) == 'undefined') { return; }
 
+            const railway = station.tags.railway;
+            const publicTransport = station.tags.public_transport;
+            if ([ 'station', 'halt' ].indexOf(railway) === -1 && [ 'station', 'stop_area' ].indexOf(publicTransport) === -1) { return; }
+
             newTrainStationsMap.push({
                 name:      station.tags.name.replace(/ \(.*'/, ''),
                 shortName: station.tags.short_name,
@@ -454,9 +458,29 @@ export default function DestinationPicker({ navigation }) {
         return true;
     };
 
-    const parseOriginStation = name => {
-        const split = normalizeSpecialCharacters( name.toLowerCase() ).replaceAll(new RegExp(/estacion |ciudad /, 'g'), '').split(' ');
-        return split.length === 1 ? split[0] : ` ${split[split.length - 1]}`;
+    const normalizeStationText = value => normalizeSpecialCharacters(String(value || '').toLowerCase())
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/[.,]/g, ' ')
+        .replace(/\bestacion\b/g, ' ')
+        .replace(/\bciudad\b/g, ' ')
+        .replace(/\bsourdeaux\b/g, 'sordeaux')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const buildOriginStationNameCandidates = station => {
+        const candidates = [];
+
+        [ station.name, station.shortName ].forEach(name => {
+            const normalizedName = normalizeStationText(name);
+            if (!normalizedName) { return; }
+
+            candidates.push(normalizedName);
+
+            const split = normalizedName.split(' ');
+            if (split.length > 1) { candidates.push(split[split.length - 1]); }
+        });
+
+        return [ ...new Set(candidates) ];
     };
 
     const detectOriginStation = async () => {
@@ -485,47 +509,58 @@ export default function DestinationPicker({ navigation }) {
             return;
         }
 
-        let closestDistanceMeters = null,
-            closestOriginNames    = null;
-
-        for (let index = 0; index < trainStationsMap.length; index++) {
-            let station = trainStationsMap[index],
-                currentDistance = getPreciseDistance(station, location.coords);
-
-            if (closestDistanceMeters === null || currentDistance < closestDistanceMeters) {
-                closestOriginNames = [ parseOriginStation(station.name) ];
-                closestDistanceMeters = currentDistance;
-                if (typeof(station.shortName) != 'undefined') { closestOriginNames.push(parseOriginStation(station.shortName)); }
-            }
-        }
-
-        if (closestOriginNames === null) {
-            setManualOriginReason( Lang.t('originDetectionErrorMessage') );
+        if (!location.coords || !Number.isFinite(location.coords.latitude) || !Number.isFinite(location.coords.longitude)) {
+            setManualOriginReason( Lang.t('manualOriginFallbackMessage') );
             setShowManualOriginPicker(true);
             return;
         }
 
-        let mappedDestinations = {};
-        allDestinationsList.forEach(destination => {
-            if (destination.id !== null) { mappedDestinations[destination.id] = normalizeSpecialCharacters(destination.title.toLowerCase()); }
-        });
+        try {
+            let closestDistanceMeters = null,
+                closestOriginNames    = null;
 
-        let nextOriginStation = null;
-        Object.keys(mappedDestinations).forEach(destination => {
-            const destinationTitle = mappedDestinations[destination];
-            if (closestOriginNames.some(name => destinationTitle.indexOf(name) > -1)) {
-                nextOriginStation = allDestinationsList.find(item => item.id === destination);
+            for (let index = 0; index < trainStationsMap.length; index++) {
+                let station = trainStationsMap[index],
+                    currentDistance = getPreciseDistance(station, location.coords);
+
+                if (closestDistanceMeters === null || currentDistance < closestDistanceMeters) {
+                    closestOriginNames = buildOriginStationNameCandidates(station);
+                    closestDistanceMeters = currentDistance;
+                }
             }
-        });
 
-        if (nextOriginStation === null) {
+            if (closestOriginNames === null) {
+                setManualOriginReason( Lang.t('originDetectionErrorMessage') );
+                setShowManualOriginPicker(true);
+                return;
+            }
+
+            let mappedDestinations = {};
+            allDestinationsList.forEach(destination => {
+                if (destination.id !== null) { mappedDestinations[destination.id] = normalizeStationText(destination.title); }
+            });
+
+            let nextOriginStation = null;
+            Object.keys(mappedDestinations).forEach(destination => {
+                const destinationTitle = mappedDestinations[destination];
+                if (closestOriginNames.some(name => destinationTitle === name || destinationTitle.indexOf(` ${name}`) > -1 || destinationTitle.indexOf(`${name} `) > -1)) {
+                    nextOriginStation = allDestinationsList.find(item => item.id === destination);
+                }
+            });
+
+            if (nextOriginStation === null) {
+                setManualOriginReason( Lang.t('originDetectionErrorMessage') );
+                setShowManualOriginPicker(true);
+                return;
+            }
+
+            setOriginDistanceMeters(closestDistanceMeters);
+            setOriginStation(nextOriginStation);
+        } catch (exception) {
+            console.error('detectOriginStation: couldn\'t map location to origin station:', exception);
             setManualOriginReason( Lang.t('originDetectionErrorMessage') );
             setShowManualOriginPicker(true);
-            return;
         }
-
-        setOriginDistanceMeters(closestDistanceMeters);
-        setOriginStation(nextOriginStation);
     };
 
     const selectOrigin = station => {

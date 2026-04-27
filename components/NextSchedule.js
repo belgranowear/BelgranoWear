@@ -25,6 +25,7 @@ import {
   Divider,
   IconButton,
   List,
+  Switch,
   Text
 } from 'react-native-paper';
 
@@ -57,6 +58,14 @@ const sourceTone = source => ({
 }[source] || 'neutral');
 
 const formatDurationUnit = (value, singularKey, pluralKey) => `${value} ${Lang.t(value === 1 ? singularKey : pluralKey)}`;
+
+const getWatchRemainingTimeFontSize = (message, shortestSide) => {
+  const safeTextWidth = shortestSide * 0.72;
+  const textLength    = Math.max(String(message || '').length, 1);
+  const fittedSize    = Math.floor(safeTextWidth / (textLength * 0.55));
+
+  return Math.max(13, Math.min(20, fittedSize));
+};
 
 const formatDepartureDelta = departure => {
   const remaining = dayjs.duration(departure.diff());
@@ -95,9 +104,7 @@ export default function NextSchedule({ navigation, route }) {
     const watchScreenShortestSide = watchLayout
       ? Math.max(responsive.shortestSide, Math.min(screenDimensions.width, screenDimensions.height))
       : responsive.shortestSide;
-    const watchReminderButtonWidth = watchLayout ? Math.round(watchScreenShortestSide * 0.44) : undefined;
-    const watchReminderButtonOffset = watchLayout ? Math.max(0, Math.round((watchScreenShortestSide - watchReminderButtonWidth) / 2)) : 0;
-    const watchReminderButtonNudge = watchLayout ? Math.round(watchScreenShortestSide * 0.24) : 0;
+    const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.74) : undefined;
 
     const [ crashMessage,            setCrashMessage            ] = useState();
     const [ remainingTimeMillis,     setRemainingTimeMillis     ] = useState();
@@ -112,6 +119,7 @@ export default function NextSchedule({ navigation, route }) {
     const [ scheduleSource,          setScheduleSource          ] = useState(SOURCE.SCHEDULED);
     const [ isFavorite,              setIsFavorite              ] = useState(false);
     const [ reminderStatus,          setReminderStatus          ] = useState();
+    const [ isReminderActive,        setIsReminderActive        ] = useState(false);
 
     const nextTripViewOpacity = useRef(new Animated.Value(0)).current;
     const fallbackReminderRef = useRef();
@@ -141,6 +149,10 @@ export default function NextSchedule({ navigation, route }) {
 
     const refreshFavoriteState = async () => {
       setIsFavorite(await Preferences.isFavoriteTrip(origin, destination));
+    };
+
+    const refreshReminderState = async () => {
+      setIsReminderActive(Boolean(await Preferences.getReminderNotificationId(origin, destination)));
     };
 
     const fetchHFRemainingTimeByStationId = async (originId, isGoingToTerminal) => {
@@ -375,18 +387,37 @@ export default function NextSchedule({ navigation, route }) {
       return true;
     };
 
+    const cancelDepartureReminder = async () => {
+      if (fallbackReminderRef.current) {
+        clearTimeout(fallbackReminderRef.current);
+        fallbackReminderRef.current = undefined;
+      }
+
+      const result = await Reminders.cancelDepartureReminder({ origin, destination });
+      setIsReminderActive(false);
+      setReminderStatus(result.message);
+    };
+
     const setDepartureReminder = async () => {
+      if (isReminderActive) {
+        await cancelDepartureReminder();
+        return;
+      }
+
       if (!nextTripTime) { return; }
       const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime: nextTripTime });
       if (!result.ok && result.reason === 'unavailable' && setForegroundFallbackReminder()) {
+        setIsReminderActive(true);
         setReminderStatus(Lang.t('reminderSetMessage'));
         return;
       }
+      setIsReminderActive(result.ok);
       setReminderStatus(result.message);
     };
 
     useEffect(() => {
       refreshFavoriteState();
+      refreshReminderState();
 
       if (previewMode === 'schedule' || previewMode === 'watch' || previewMode === 'watch-schedule') {
         const previewDepartures = [ dayjs().add(14, 'minute'), dayjs().add(36, 'minute'), dayjs().add(58, 'minute') ];
@@ -468,24 +499,61 @@ export default function NextSchedule({ navigation, route }) {
 
     const reminderButton = (
       <Button
-        mode="contained-tonal"
-        icon={watchLayout ? undefined : 'bell-outline'}
+        mode={watchLayout && isReminderActive ? 'contained' : 'contained-tonal'}
+        icon={isReminderActive ? 'check' : (watchLayout ? 'checkbox-blank-outline' : 'bell-outline')}
         onPress={setDepartureReminder}
         compact={watchLayout}
-        style={watchLayout ? styles.reminderButtonWatch : undefined}
+        accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
+        style={watchLayout ? [ styles.reminderButtonWatch, { width: watchReminderButtonWidth } ] : undefined}
         contentStyle={watchLayout ? styles.reminderButtonContentWatch : undefined}
         labelStyle={watchLayout ? styles.reminderButtonLabelWatch : undefined}
       >
-        {watchLayout ? Lang.t('remindMeShortBtnLabel') : Lang.t('remindMeBtnLabel')}
+        {isReminderActive
+          ? (watchLayout ? Lang.t('reminderSetShortMessage') : Lang.t('cancelReminderBtnLabel'))
+          : (watchLayout ? Lang.t('remindMeShortBtnLabel') : Lang.t('remindMeBtnLabel'))}
       </Button>
     );
-    const watchReminderFeedback = reminderStatus ? (
-      <View style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft } ]}>
+    const isReminderCancellationStatus = reminderStatus === Lang.t('reminderCanceledMessage');
+    const watchReminderFeedback = reminderStatus && !isReminderActive && !isReminderCancellationStatus ? (
+      <View style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft, width: watchReminderButtonWidth } ]}>
         <Text numberOfLines={2} style={[ styles.watchReminderFeedbackText, { color: theme.accentStrong } ]}>
           {compactReminderStatus(reminderStatus)}
         </Text>
       </View>
     ) : null;
+    const watchReminderSwitch = (
+      <View
+        style={[
+          styles.watchReminderSwitchRow,
+          {
+            width: watchReminderButtonWidth,
+            backgroundColor: isReminderActive ? theme.accentSoft : theme.paperTheme.colors.surfaceVariant
+          }
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          ellipsizeMode="clip"
+          style={[
+            styles.watchReminderSwitchLabel,
+            { color: isReminderActive ? theme.accentStrong : theme.paperTheme.colors.onSurfaceVariant }
+          ]}
+        >
+          {isReminderActive ? Lang.t('reminderSetShortMessage') : Lang.t('remindMeShortBtnLabel')}
+        </Text>
+        <Switch
+          value={isReminderActive}
+          onValueChange={setDepartureReminder}
+          color={theme.accent}
+          accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
+        />
+      </View>
+    );
+    const watchRemainingTimeFontSize = watchLayout
+      ? getWatchRemainingTimeFontSize(remainingTimeMessage, watchScreenShortestSide)
+      : undefined;
 
     return (
         <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
@@ -515,7 +583,22 @@ export default function NextSchedule({ navigation, route }) {
             </Animated.View>
             {watchLayout ? (
               <>
-                <Text variant="titleMedium" style={styles.remainingTextWatch}>{remainingTimeMessage}</Text>
+                <Text
+                  variant="titleMedium"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.58}
+                  ellipsizeMode="clip"
+                  style={[
+                    styles.remainingTextWatch,
+                    {
+                      fontSize: watchRemainingTimeFontSize,
+                      lineHeight: watchRemainingTimeFontSize + 4
+                    }
+                  ]}
+                >
+                  {remainingTimeMessage}
+                </Text>
                 <Text variant="labelSmall" style={styles.sourceTextWatch}>{sourceLabel(scheduleSource)}</Text>
                 <OfflineModeHint isOffline={networkErrorDetected} sourceLabel={sourceLabel(scheduleSource)} navigation={navigation} />
               </>
@@ -547,17 +630,8 @@ export default function NextSchedule({ navigation, route }) {
               <Button mode="outlined" icon="swap-horizontal" onPress={reverseRoute} compact={watchLayout}>{Lang.t('reverseRouteBtnLabel')}</Button>
             ) : null}
             {watchLayout ? (
-              <View
-                style={[
-                  styles.watchReminderButtonFrame,
-                  {
-                    width: watchReminderButtonWidth,
-                    marginLeft: watchReminderButtonOffset,
-                    transform: [{ translateX: watchReminderButtonNudge }]
-                  }
-                ]}
-              >
-                {watchReminderFeedback || reminderButton}
+              <View style={styles.watchReminderButtonFrame}>
+                {watchReminderFeedback || watchReminderSwitch}
               </View>
             ) : reminderButton}
           </View>
@@ -657,11 +731,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center'
   },
   remainingTextWatch: {
+    width: '100%',
+    maxWidth: '82%',
     textAlign: 'center',
     fontWeight: '800',
     marginTop: 2,
-    fontSize: 20,
-    lineHeight: 24
+    includeFontPadding: false
   },
   sourceTextWatch: {
     textAlign: 'center',
@@ -695,19 +770,20 @@ const styles = StyleSheet.create({
     overflow: 'visible'
   },
   watchReminderButtonFrame: {
-    alignSelf: 'flex-start',
+    width: '100%',
+    alignSelf: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'visible'
   },
   reminderButtonWatch: {
-    width: '100%',
     borderRadius: 22,
     alignSelf: 'center'
   },
   reminderButtonContentWatch: {
     minHeight: 36,
     height: 36,
-    paddingHorizontal: 0
+    paddingHorizontal: 8
   },
   reminderButtonLabelWatch: {
     fontSize: 14,
@@ -729,6 +805,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 15,
     fontWeight: '800'
+  },
+  watchReminderSwitchRow: {
+    minHeight: 38,
+    borderRadius: 22,
+    paddingLeft: 12,
+    paddingRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4
+  },
+  watchReminderSwitchLabel: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: '800',
+    includeFontPadding: false
   },
   statusMessage: {
     alignSelf: 'center'

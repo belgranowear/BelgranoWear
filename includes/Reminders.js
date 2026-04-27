@@ -148,6 +148,36 @@ const Reminders = {
                 message: Lang.t('reminderUnavailableMessage')
             };
         }
+    },
+
+    cancelDepartureReminder: async ({ origin, destination }) => {
+        try {
+            const existingId = await Preferences.getReminderNotificationId(origin, destination);
+            const notifications = await loadNotifications();
+
+            if (existingId && notifications) {
+                await notifications.cancelScheduledNotificationAsync(existingId).catch(exception => {
+                    console.warn('Reminders: failed to cancel scheduled notification:', exception);
+                });
+            }
+
+            await Preferences.removeReminderNotificationId(origin, destination);
+
+            return {
+                ok: true,
+                message: Lang.t('reminderCanceledMessage')
+            };
+        } catch (exception) {
+            console.warn('Reminders: failed to cancel reminder:', exception);
+
+            await Preferences.removeReminderNotificationId(origin, destination);
+
+            return {
+                ok: false,
+                reason: 'unavailable',
+                message: Lang.t('reminderCanceledMessage')
+            };
+        }
     }
 };
 

@@ -112,6 +112,15 @@ const Preferences = {
         reminders[tripId] = notificationId;
 
         return await writeJSON(REMINDERS_KEY, reminders);
+    },
+
+    removeReminderNotificationId: async (origin, destination) => {
+        const reminders = await readJSON(REMINDERS_KEY, {});
+        const tripId    = normalizeTrip(origin, destination).id;
+
+        delete reminders[tripId];
+
+        return await writeJSON(REMINDERS_KEY, reminders);
     }
 };
 
