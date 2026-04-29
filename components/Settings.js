@@ -19,7 +19,7 @@ import { useTheme } from '../includes/Theme';
 
 import { AppScreen, TransitCard, useResponsiveMetrics } from './ui';
 
-const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '1.4.3';
+const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.0.0';
 
 function WatchThemeOption({ mode, label, selected, onPress }) {
     const { theme } = useTheme();
