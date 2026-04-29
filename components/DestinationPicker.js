@@ -30,7 +30,7 @@ import {
 } from 'react-native-paper';
 
 import OfflineModeHint from './OfflineModeHint';
-import { AppScreen, StatusPill, TransitCard, useResponsiveMetrics } from './ui';
+import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 
 import Cache       from '../includes/Cache';
 import Lang        from '../includes/Lang';
@@ -66,7 +66,7 @@ function SettingsButton({ navigation }) {
     );
 }
 
-function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, compact = false }) {
+function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, compact = false, manualOrigin = false }) {
     const { theme } = useTheme();
 
     if (compact) {
@@ -77,6 +77,7 @@ function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityH
                 style={[
                     styles.stationSurface,
                     styles.stationSurfaceWatch,
+                    manualOrigin ? styles.stationSurfaceManualWatch : undefined,
                     { backgroundColor: theme.paperTheme.colors.surfaceVariant }
                 ]}
             >
@@ -85,9 +86,16 @@ function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityH
                     accessibilityRole="button"
                     accessibilityLabel={item.title}
                     accessibilityHint={accessibilityHint}
-                    style={styles.stationRowPressableWatch}
+                    style={[ styles.stationRowPressableWatch, manualOrigin ? styles.stationRowPressableManualWatch : undefined ]}
                 >
-                    <Text numberOfLines={2} style={styles.stationTitleWatch}>{item.title}</Text>
+                    <Text
+                        numberOfLines={manualOrigin ? 1 : 2}
+                        adjustsFontSizeToFit={manualOrigin}
+                        minimumFontScale={0.72}
+                        style={[ styles.stationTitleWatch, manualOrigin ? styles.stationTitleManualWatch : undefined ]}
+                    >
+                        {item.title}
+                    </Text>
                 </Pressable>
                 {onFavoritePress ? (
                     <Pressable
@@ -147,8 +155,24 @@ function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityH
     );
 }
 
-function QuickRouteCard({ trip, label, onPress }) {
+function QuickRouteCard({ trip, label, onPress, compact = false }) {
     const { theme } = useTheme();
+
+    if (compact) {
+        return (
+            <Surface mode="flat" elevation={0} style={[ styles.quickRouteCardWatch, { backgroundColor: theme.accentSoft } ]}>
+                <Pressable
+                    onPress={onPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${label}: ${trip.origin.title} ${Lang.t('to')} ${trip.destination.title}`}
+                    style={styles.quickRoutePressableWatch}
+                >
+                    <Text numberOfLines={1} style={[ styles.quickRouteLabelWatch, { color: theme.accentStrong } ]}>{label}</Text>
+                    <Text numberOfLines={2} style={[ styles.quickRouteTitleWatch, { color: theme.accentStrong } ]}>{tripDestination(trip).title}</Text>
+                </Pressable>
+            </Surface>
+        );
+    }
 
     return (
         <Surface mode="flat" elevation={1} style={[ styles.quickRouteCard, { backgroundColor: theme.paperTheme.colors.surfaceVariant } ]}>
@@ -632,6 +656,7 @@ export default function DestinationPicker({ navigation }) {
             isFavorite={currentOriginFavoriteDestinationIds.indexOf(item.id) > -1}
             selected={item.id === selectedId}
             compact={watchLayout}
+            manualOrigin={watchLayout && showManualOriginPicker}
         />
     );
 
@@ -641,20 +666,20 @@ export default function DestinationPicker({ navigation }) {
             onPress={() => selectOrigin(item)}
             accessibilityHint={Lang.t('selectThisOriginHint').replace('%s', item.title)}
             compact={watchLayout}
+            manualOrigin={watchLayout}
         />
     );
 
     const renderWatchStationStack = (items, renderItem, footer = null) => (
-        <View>
+        <>
             {items.map((item, index) => (
-                <View key={item.id}>
-                    {index > 0 ? <View style={{ height: 6 }} /> : null}
+                <WatchScaleItem key={item.id} style={index > 0 ? styles.watchScaledListItemSeparated : undefined}>
                     {renderItem({ item })}
-                </View>
+                </WatchScaleItem>
             ))}
-            {footer ? <View style={styles.watchSettingsFooter}>{footer}</View> : null}
+            {footer ? <WatchScaleItem style={styles.watchSettingsFooter}>{footer}</WatchScaleItem> : null}
             <View style={{ height: watchListEndPadding }} />
-        </View>
+        </>
     );
 
     if (crashMessage) {
@@ -674,15 +699,26 @@ export default function DestinationPicker({ navigation }) {
 
     if (showManualOriginPicker) {
         return withOptionalSwipeExit(
-                <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
-                    <View style={[ styles.screenHeader, watchLayout ? styles.screenHeaderWatch : undefined ]}>
-                        <View style={[ styles.headerTitleBlock, watchLayout ? styles.headerTitleBlockWatch : undefined ]}>
-                            <Text variant={watchLayout ? 'titleMedium' : 'headlineSmall'} style={[ styles.headerTitle, watchLayout ? styles.watchText : undefined ]}>{Lang.t('chooseOriginHint')}</Text>
-                            <Text variant={watchLayout ? 'bodySmall' : 'bodyMedium'} style={watchLayout ? styles.watchText : undefined}>{manualOriginReason || Lang.t('manualOriginFallbackMessage')}</Text>
+                <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.manualOriginContentWatch : undefined ]}>
+                    {watchLayout ? (
+                        <View style={styles.manualOriginHeaderWatch}>
+                            <Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.manualOriginTitleWatch}>
+                                {Lang.t('chooseOriginHint')}
+                            </Text>
+                            <Text numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.manualOriginReasonWatch}>
+                                {manualOriginReason || Lang.t('manualOriginFallbackMessage')}
+                            </Text>
                         </View>
-                        {!watchLayout ? <SettingsButton navigation={navigation} /> : null}
-                    </View>
-                    {watchLayout ? renderWatchStationStack(allDestinationsList || [], renderOriginItem) : (
+                    ) : (
+                        <View style={styles.screenHeader}>
+                            <View style={styles.headerTitleBlock}>
+                                <Text variant="headlineSmall" style={styles.headerTitle}>{Lang.t('chooseOriginHint')}</Text>
+                                <Text variant="bodyMedium">{manualOriginReason || Lang.t('manualOriginFallbackMessage')}</Text>
+                            </View>
+                            <SettingsButton navigation={navigation} />
+                        </View>
+                    )}
+                    {watchLayout ? renderWatchStationStack(allDestinationsList || [], renderOriginItem, <SettingsButton navigation={navigation} />) : (
                         <FlatList
                             data={allDestinationsList || []}
                             renderItem={renderOriginItem}
@@ -713,16 +749,15 @@ export default function DestinationPicker({ navigation }) {
                     </View>
                 ) : null}
 
-                <TransitCard style={[ styles.routePanel, watchLayout ? styles.routePanelWatch : undefined ]}>
-                    <View style={[ styles.routePanelTop, watchLayout ? styles.routePanelTopWatch : undefined ]}>
-                        {!watchLayout ? <View style={[ styles.routeIcon, { backgroundColor: theme.accent } ]}><Text variant="titleMedium" style={{ color: theme.textInverse }}>🚆</Text></View> : null}
-                        <View style={styles.routePanelText}>
-                            <Text variant={watchLayout ? 'labelSmall' : 'labelMedium'} style={watchLayout ? styles.watchText : undefined}>{Lang.t('fromStationLabel')}</Text>
-                            <Text variant={watchLayout ? 'titleMedium' : 'headlineSmall'} style={[ styles.routeOrigin, watchLayout ? styles.watchText : undefined ]} numberOfLines={1}>{originStation?.title}</Text>
+                {watchLayout ? <WatchScaleItem>
+                    <TransitCard style={[ styles.routePanel, styles.routePanelWatch ]}>
+                        <View style={[ styles.routePanelTop, styles.routePanelTopWatch ]}>
+                            <View style={styles.routePanelText}>
+                                <Text variant="labelSmall" style={styles.watchText}>{Lang.t('fromStationLabel')}</Text>
+                                <Text variant="titleMedium" style={[ styles.routeOrigin, styles.watchText ]} numberOfLines={1}>{originStation?.title}</Text>
+                            </View>
                         </View>
-                    </View>
-                    <View style={[ styles.routePanelActions, watchLayout ? styles.routePanelActionsWatch : undefined ]}>
-                        {watchLayout ? (
+                        <View style={[ styles.routePanelActions, styles.routePanelActionsWatch ]}>
                             <Pressable
                                 accessibilityRole="button"
                                 accessibilityLabel={Lang.t('changeOriginBtnLabel')}
@@ -731,31 +766,58 @@ export default function DestinationPicker({ navigation }) {
                             >
                                 <Text variant="labelLarge" style={styles.changeOriginTextWatch}>📍 {Lang.t('changeOriginBtnLabel')}</Text>
                             </Pressable>
-                        ) : (
+                            <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
+                        </View>
+                        {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
+                            <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
+                        ) : null}
+                        {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
+                    </TransitCard>
+                </WatchScaleItem> : (
+                    <TransitCard style={styles.routePanel}>
+                        <View style={styles.routePanelTop}>
+                            <View style={[ styles.routeIcon, { backgroundColor: theme.accent } ]}><Text variant="titleMedium" style={{ color: theme.textInverse }}>🚆</Text></View>
+                            <View style={styles.routePanelText}>
+                                <Text variant="labelMedium">{Lang.t('fromStationLabel')}</Text>
+                                <Text variant="headlineSmall" style={styles.routeOrigin} numberOfLines={1}>{originStation?.title}</Text>
+                            </View>
+                        </View>
+                        <View style={styles.routePanelActions}>
                             <Button mode="outlined" icon="map-marker" onPress={() => setShowManualOriginPicker(true)}>{Lang.t('changeOriginBtnLabel')}</Button>
-                        )}
-                        <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
-                    </View>
-                    {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
-                        <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
-                    ) : null}
-                    {isAndroidDynamicColorAvailable && !watchLayout ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
-                </TransitCard>
+                            <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
+                        </View>
+                        {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
+                            <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
+                        ) : null}
+                        {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
+                    </TransitCard>
+                )}
 
-                {quickTrips.length > 0 && !watchLayout ? (
-                    <View>
-                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRouteList}>
-                            {quickTrips.map(trip => (
-                                <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
-                            ))}
-                        </ScrollView>
-                    </View>
+                {quickTrips.length > 0 ? (
+                    watchLayout ? (
+                        <WatchScaleItem>
+                            <View style={styles.watchQuickRouteSection}>
+                                <Text variant="labelLarge" style={[ styles.sectionTitle, styles.sectionTitleWatch ]}>{Lang.t('favoritesSectionTitle')}</Text>
+                                {quickTrips.map(trip => (
+                                    <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} compact />
+                                ))}
+                            </View>
+                        </WatchScaleItem>
+                    ) : (
+                        <View>
+                            <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRouteList}>
+                                {quickTrips.map(trip => (
+                                    <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                                ))}
+                            </ScrollView>
+                        </View>
+                    )
                 ) : null}
 
-                <View>
-                    {!watchLayout ? <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text> : null}
-                    {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem, <SettingsButton navigation={navigation} />) : (
+                {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem, <SettingsButton navigation={navigation} />) : (
+                    <View>
+                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text>
                         <FlatList
                             data={prioritizedDestinations}
                             renderItem={renderDestinationItem}
@@ -765,8 +827,8 @@ export default function DestinationPicker({ navigation }) {
                             showsVerticalScrollIndicator={false}
                             ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                         />
-                    )}
-                </View>
+                    </View>
+                )}
             </AppScreen>
     );
 }
@@ -790,6 +852,35 @@ const styles = StyleSheet.create({
     stackGapWatch: {
         gap: 4
     },
+    manualOriginContentWatch: {
+        gap: 6,
+        paddingTop: 10,
+        alignItems: 'center'
+    },
+    manualOriginHeaderWatch: {
+        width: '76%',
+        alignSelf: 'center',
+        alignItems: 'center',
+        gap: 4,
+        marginBottom: 0
+    },
+    manualOriginTitleWatch: {
+        width: '100%',
+        textAlign: 'center',
+        fontSize: 21,
+        lineHeight: 24,
+        fontWeight: '900',
+        includeFontPadding: false
+    },
+    manualOriginReasonWatch: {
+        width: '100%',
+        textAlign: 'center',
+        fontSize: 13,
+        lineHeight: 16,
+        fontWeight: '600',
+        opacity: 0.92,
+        includeFontPadding: false
+    },
     screenHeader: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -809,6 +900,9 @@ const styles = StyleSheet.create({
         fontSize: 24,
         lineHeight: 28,
         fontWeight: '800'
+    },
+    watchScaledListItemSeparated: {
+        marginTop: 6
     },
     watchSettingsFooter: {
         alignItems: 'center',
@@ -904,6 +998,34 @@ const styles = StyleSheet.create({
     quickRouteItem: {
         minHeight: 86
     },
+    watchQuickRouteSection: {
+        width: '92%',
+        alignSelf: 'center',
+        gap: 6
+    },
+    quickRouteCardWatch: {
+        borderRadius: 20,
+        overflow: 'hidden'
+    },
+    quickRoutePressableWatch: {
+        minHeight: 46,
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        justifyContent: 'center'
+    },
+    quickRouteLabelWatch: {
+        fontSize: 11,
+        lineHeight: 13,
+        fontWeight: '700',
+        opacity: 0.72,
+        textAlign: 'center'
+    },
+    quickRouteTitleWatch: {
+        fontSize: 15,
+        lineHeight: 18,
+        fontWeight: '900',
+        textAlign: 'center'
+    },
     stationSurface: {
         borderRadius: 18,
         overflow: 'hidden'
@@ -915,11 +1037,22 @@ const styles = StyleSheet.create({
         minHeight: 52,
         position: 'relative'
     },
+    stationSurfaceManualWatch: {
+        width: '82%',
+        borderRadius: 21,
+        minHeight: 44
+    },
     stationRowPressableWatch: {
         minHeight: 52,
         paddingLeft: 16,
         paddingRight: 52,
         justifyContent: 'center'
+    },
+    stationRowPressableManualWatch: {
+        minHeight: 44,
+        paddingLeft: 18,
+        paddingRight: 18,
+        alignItems: 'center'
     },
     stationRow: {
         minHeight: 58,
@@ -939,6 +1072,12 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         fontWeight: '800',
         textAlign: 'left'
+    },
+    stationTitleManualWatch: {
+        width: '100%',
+        textAlign: 'center',
+        fontSize: 16,
+        lineHeight: 20
     },
     stationStarFloating: {
         position: 'absolute',

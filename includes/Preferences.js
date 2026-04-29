@@ -5,9 +5,11 @@ const THEME_MODE_KEY = `${KEY_PREFIX}themeMode`;
 const FAVORITES_KEY  = `${KEY_PREFIX}favoriteTrips`;
 const RECENTS_KEY    = `${KEY_PREFIX}recentTrips`;
 const REMINDERS_KEY  = `${KEY_PREFIX}reminderNotificationIds`;
+const SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT_KEY = `${KEY_PREFIX}scheduleScrollHintFullScrollCount`;
 
 const VALID_THEME_MODES = [ 'system', 'light', 'dark' ];
 const MAX_RECENT_TRIPS  = 5;
+const MAX_SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT = 3;
 
 const readJSON = async (key, fallback) => {
     try {
@@ -121,6 +123,23 @@ const Preferences = {
         delete reminders[tripId];
 
         return await writeJSON(REMINDERS_KEY, reminders);
+    },
+
+    getScheduleScrollHintFullScrollCount: async () => {
+        const count = await readJSON(SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT_KEY, 0);
+
+        return Number.isFinite(count)
+            ? Math.max(0, Math.min(MAX_SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT, count))
+            : 0;
+    },
+
+    incrementScheduleScrollHintFullScrollCount: async () => {
+        const count     = await Preferences.getScheduleScrollHintFullScrollCount();
+        const nextCount = Math.min(MAX_SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT, count + 1);
+
+        await writeJSON(SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT_KEY, nextCount);
+
+        return nextCount;
     }
 };
 

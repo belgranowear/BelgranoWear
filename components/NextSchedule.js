@@ -8,6 +8,7 @@ import {
   AppState,
   Dimensions,
   Platform,
+  Pressable,
   StyleSheet,
   Vibration,
   View
@@ -36,7 +37,7 @@ import Reminders   from '../includes/Reminders';
 import { getUIPreviewMode, isWatchUIPreview } from '../includes/UIPreview';
 
 import OfflineModeHint from './OfflineModeHint';
-import { AppScreen, StatusPill, TransitCard, useResponsiveMetrics } from './ui';
+import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 import { useTheme } from '../includes/Theme';
 
 const SOURCE = {
@@ -44,6 +45,9 @@ const SOURCE = {
   SCHEDULED: 'scheduled',
   OFFLINE:   'offline'
 };
+
+const SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT = 3;
+
 
 const sourceLabel = source => ({
   [SOURCE.LIVE]:      Lang.t('sourceLiveEstimate'),
@@ -61,10 +65,10 @@ const formatDurationUnit = (value, singularKey, pluralKey) => `${value} ${Lang.t
 
 const getWatchRemainingTimeFontSize = (message, shortestSide) => {
   const safeTextWidth = shortestSide * 0.72;
-  const textLength    = Math.max(String(message || '').length, 1);
+  const textLength    = Math.max(String(message || Lang.t('hurryUpMessage')).length, 1);
   const fittedSize    = Math.floor(safeTextWidth / (textLength * 0.55));
 
-  return Math.max(13, Math.min(20, fittedSize));
+  return Math.max(13, Math.min(18, fittedSize));
 };
 
 const formatDepartureDelta = departure => {
@@ -104,7 +108,12 @@ export default function NextSchedule({ navigation, route }) {
     const watchScreenShortestSide = watchLayout
       ? Math.max(responsive.shortestSide, Math.min(screenDimensions.width, screenDimensions.height))
       : responsive.shortestSide;
-    const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.74) : undefined;
+    const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.78) : undefined;
+    const watchScrollHintIsRounded = watchLayout && Math.abs(screenDimensions.width - screenDimensions.height) <= 32;
+    const watchHeaderTextWidth = watchLayout
+      ? Math.round(responsive.roundSafeWidth * (watchScrollHintIsRounded ? 0.66 : 0.84))
+      : undefined;
+    const watchScheduleEndPadding = watchLayout ? Math.round(watchScreenShortestSide * 0.34) : 0;
 
     const [ crashMessage,            setCrashMessage            ] = useState();
     const [ remainingTimeMillis,     setRemainingTimeMillis     ] = useState();
@@ -118,10 +127,15 @@ export default function NextSchedule({ navigation, route }) {
     const [ shouldLoopAnimation,     setShouldLoopAnimation     ] = useState(true);
     const [ scheduleSource,          setScheduleSource          ] = useState(SOURCE.SCHEDULED);
     const [ isFavorite,              setIsFavorite              ] = useState(false);
+    const [ routeStatus,             setRouteStatus             ] = useState();
     const [ reminderStatus,          setReminderStatus          ] = useState();
     const [ isReminderActive,        setIsReminderActive        ] = useState(false);
+    const [ isWatchScrollHintDismissed, setIsWatchScrollHintDismissed ] = useState(false);
+    const [ watchScrollHintFullScrollCount, setWatchScrollHintFullScrollCount ] = useState(null);
 
     const nextTripViewOpacity = useRef(new Animated.Value(0)).current;
+    const scrollHintProgress = useRef(new Animated.Value(0)).current;
+    const watchFullScrollRecordLockedRef = useRef(false);
     const fallbackReminderRef = useRef();
 
     const origin      = route.params.origin;
@@ -239,8 +253,10 @@ export default function NextSchedule({ navigation, route }) {
         .finally(() => { setShouldLoopAnimation(false); });
     };
 
-    const buildRemainingTimeMessage = () => {
-      let remainingTime = dayjs.duration( nextTripTime.diff() );
+    const buildRemainingTimeMessage = (departure = nextTripTime) => {
+      if (!departure) { return Lang.t('hurryUpMessage'); }
+
+      let remainingTime = dayjs.duration( departure.diff() );
       let hours   = remainingTime.get('hour'),
           minutes = remainingTime.get('minute'),
           seconds = remainingTime.get('second'),
@@ -260,6 +276,7 @@ export default function NextSchedule({ navigation, route }) {
       }
 
       if (hours == 0 && seconds == 0 && minutes == 0) { return Lang.t('hurryUpMessage'); }
+      if (!remainingTimeMessage.trim()) { return Lang.t('hurryUpMessage'); }
 
       return `(${Lang.t('nextTripRemainingTimeMessage').replace('%s', remainingTimeMessage)})`;
     };
@@ -310,7 +327,10 @@ export default function NextSchedule({ navigation, route }) {
 
         if (differenceMilliseconds >= 0) {
           nextOptions.push(comparedDate);
-          if (nextOptions.length === 1) { setNextTripTime(comparedDate); }
+          if (nextOptions.length === 1) {
+            setNextTripTime(comparedDate);
+            setRemainingTimeMessage(buildRemainingTimeMessage(comparedDate));
+          }
           if (nextOptions.length >= 3) { break; }
         }
       }
@@ -364,7 +384,7 @@ export default function NextSchedule({ navigation, route }) {
     const toggleFavorite = async () => {
       const nowFavorite = await Preferences.toggleFavoriteTrip(origin, destination);
       setIsFavorite(nowFavorite);
-      setReminderStatus(nowFavorite ? Lang.t('routeSavedMessage') : Lang.t('routeRemovedMessage'));
+      setRouteStatus(nowFavorite ? Lang.t('routeSavedMessage') : Lang.t('routeRemovedMessage'));
     };
 
     const reverseRoute = () => {
@@ -445,6 +465,20 @@ export default function NextSchedule({ navigation, route }) {
     }, [ origin.id, destination.id ]);
 
     useEffect(() => {
+      let wasCancelled = false;
+
+      if (!watchLayout) { return; }
+
+      Preferences.getScheduleScrollHintFullScrollCount()
+        .then(count => {
+          if (wasCancelled) { return; }
+          setWatchScrollHintFullScrollCount(count);
+        });
+
+      return () => { wasCancelled = true; };
+    }, [ watchLayout ]);
+
+    useEffect(() => {
       if (typeof(nextTripTime) == 'undefined') { return; }
 
       const timeout = setTimeout(() => {
@@ -472,6 +506,34 @@ export default function NextSchedule({ navigation, route }) {
       let date = dayjs().add(1, 'day').hour(0).minute(0).second(0);
       fetchNextTripTime(origin.title, destination.title, date);
     }, [ shouldTryNextDay ]);
+
+    useEffect(() => {
+      if (!watchLayout || nextDepartures.length <= 1 || isWatchScrollHintDismissed) {
+        scrollHintProgress.stopAnimation();
+        scrollHintProgress.setValue(0);
+        return;
+      }
+
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(scrollHintProgress, {
+            toValue: 1,
+            duration: 1100,
+            useNativeDriver: true
+          }),
+          Animated.timing(scrollHintProgress, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true
+          }),
+          Animated.delay(650)
+        ])
+      );
+
+      animation.start();
+
+      return () => animation.stop();
+    }, [ watchLayout, nextDepartures.length, scrollHintProgress, isWatchScrollHintDismissed ]);
 
     if (crashMessage) {
       return (
@@ -504,7 +566,7 @@ export default function NextSchedule({ navigation, route }) {
         onPress={setDepartureReminder}
         compact={watchLayout}
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
-        style={watchLayout ? [ styles.reminderButtonWatch, { width: watchReminderButtonWidth } ] : undefined}
+        style={watchLayout ? [ styles.reminderButtonWatch, { width: watchReminderButtonWidth } ] : styles.actionButton}
         contentStyle={watchLayout ? styles.reminderButtonContentWatch : undefined}
         labelStyle={watchLayout ? styles.reminderButtonLabelWatch : undefined}
       >
@@ -551,99 +613,302 @@ export default function NextSchedule({ navigation, route }) {
         />
       </View>
     );
+    const visibleRemainingTimeMessage = String(remainingTimeMessage || '').trim() || buildRemainingTimeMessage(nextTripTime);
     const watchRemainingTimeFontSize = watchLayout
-      ? getWatchRemainingTimeFontSize(remainingTimeMessage, watchScreenShortestSide)
+      ? getWatchRemainingTimeFontSize(visibleRemainingTimeMessage, watchScreenShortestSide)
       : undefined;
 
+    const watchRouteActions = watchLayout ? (
+      <WatchScaleItem>
+        <View style={styles.watchRouteActions}>
+          <Pressable
+            onPress={toggleFavorite}
+            accessibilityRole="button"
+            accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
+            accessibilityState={{ selected: isFavorite }}
+            style={({ pressed }) => [
+              styles.watchRouteActionButton,
+              {
+                backgroundColor: isFavorite ? theme.accentSoft : theme.paperTheme.colors.surfaceVariant,
+                opacity: pressed ? 0.72 : 1
+              }
+            ]}
+          >
+            <Text style={[ styles.watchRouteActionIcon, { color: isFavorite ? theme.accentStrong : theme.paperTheme.colors.onSurfaceVariant } ]}>{isFavorite ? '★' : '☆'}</Text>
+          </Pressable>
+          <Pressable
+            onPress={reverseRoute}
+            accessibilityRole="button"
+            accessibilityLabel={Lang.t('reverseRouteBtnLabel')}
+            style={({ pressed }) => [
+              styles.watchReverseButton,
+              {
+                backgroundColor: theme.paperTheme.colors.surfaceVariant,
+                opacity: pressed ? 0.72 : 1
+              }
+            ]}
+          >
+            <Text numberOfLines={1} style={[ styles.watchReverseText, { color: theme.paperTheme.colors.onSurfaceVariant } ]}>⇄ {Lang.t('reverseRouteBtnLabel')}</Text>
+          </Pressable>
+        </View>
+      </WatchScaleItem>
+    ) : null;
+
+    const departuresList = nextDepartures.length > 1 ? (
+      watchLayout ? (
+        <WatchScaleItem>
+          <TransitCard style={styles.nextDeparturesWatchCard}>
+            <Text variant="labelLarge" style={styles.sectionTitleWatch}>{Lang.t('nextDeparturesTitle')}</Text>
+            {nextDepartures.map((departure, index) => (
+              <View key={departure.toISOString()} style={styles.departureRowWatch}>
+                <Text style={styles.departureTimeWatch}>{departure.format('HH:mm')}</Text>
+                <Text numberOfLines={1} style={styles.departureDeltaWatch}>{index === 0 ? sourceLabel(scheduleSource) : formatDepartureDelta(departure)}</Text>
+              </View>
+            ))}
+          </TransitCard>
+        </WatchScaleItem>
+      ) : (
+        <TransitCard>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('nextDeparturesTitle')}</Text>
+          {nextDepartures.map((departure, index) => (
+            <View key={departure.toISOString()}>
+              <List.Item
+                title={departure.format('HH:mm')}
+                description={index === 0 ? sourceLabel(scheduleSource) : Lang.t('sourceScheduledTime')}
+                left={props => <List.Icon {...props} icon={index === 0 ? 'train' : 'clock-outline'} />}
+                right={() => <Text variant="bodyMedium" style={styles.departureDelta}>{formatDepartureDelta(departure)}</Text>}
+                style={styles.departureRow}
+              />
+              {index < nextDepartures.length - 1 ? <Divider /> : null}
+            </View>
+          ))}
+        </TransitCard>
+      )
+    ) : null;
+
+    const watchScrollHintOpacity = scrollHintProgress.interpolate({
+      inputRange: [ 0, 0.2, 0.78, 1 ],
+      outputRange: [ 0, 0.72, 0.72, 0 ]
+    });
+    const shouldShowWatchScrollHint = watchLayout
+      && nextDepartures.length > 1
+      && !isWatchScrollHintDismissed
+      && watchScrollHintFullScrollCount !== null
+      && watchScrollHintFullScrollCount < SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT;
+    const watchScrollHintTravel = Math.round(responsive.height * 0.16);
+    const watchScrollHintTranslateY = scrollHintProgress.interpolate({
+      inputRange: [ 0, 1 ],
+      outputRange: [ watchScrollHintTravel, 0 ]
+    });
+    const watchScrollHintCounterTranslateY = scrollHintProgress.interpolate({
+      inputRange: [ 0, 1 ],
+      outputRange: [ -watchScrollHintTravel, 0 ]
+    });
+    const watchSideScrollHintTop = Math.round(responsive.height * 0.51);
+    const watchSideScrollSegmentHeight = Math.round(responsive.height * 0.09);
+    const watchSideScrollHint = shouldShowWatchScrollHint ? (
+      <Animated.View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[
+          styles.watchSideScrollHint,
+          watchScrollHintIsRounded
+            ? [
+              styles.watchSideScrollHintRounded,
+              {
+                width: Math.round(responsive.width * 0.14),
+                height: watchSideScrollSegmentHeight,
+                top: watchSideScrollHintTop,
+                transform: [ { translateY: watchScrollHintTranslateY } ]
+              }
+            ]
+            : [
+              styles.watchSideScrollHintSquare,
+              {
+                height: watchSideScrollSegmentHeight + watchScrollHintTravel,
+                top: watchSideScrollHintTop
+              }
+            ]
+        ]}
+      >
+        <Animated.View
+          style={[
+            watchScrollHintIsRounded ? styles.watchSideScrollArcRounded : styles.watchSideScrollArcSquare,
+            {
+              borderColor: theme.accentStrong,
+              backgroundColor: watchScrollHintIsRounded ? 'transparent' : theme.accentStrong,
+              opacity: watchScrollHintOpacity,
+              ...(watchScrollHintIsRounded ? {
+                width: responsive.width,
+                height: responsive.height,
+                borderRadius: responsive.shortestSide / 2,
+                top: -watchSideScrollHintTop,
+                transform: [ { translateY: watchScrollHintCounterTranslateY } ]
+              } : {
+                height: watchSideScrollSegmentHeight,
+                transform: [ { translateY: watchScrollHintTranslateY } ]
+              })
+            }
+          ]}
+        />
+      </Animated.View>
+    ) : null;
+
+
+    const handleScheduleScroll = async event => {
+      if (!shouldShowWatchScrollHint || watchFullScrollRecordLockedRef.current) { return; }
+
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const scrolledDistance = contentOffset?.y || 0;
+      const viewportHeight = layoutMeasurement?.height || 0;
+      const contentHeight = contentSize?.height || 0;
+      const distanceFromBottom = contentHeight - (scrolledDistance + viewportHeight);
+
+      if (scrolledDistance <= 8 || distanceFromBottom > 24) { return; }
+
+      watchFullScrollRecordLockedRef.current = true;
+      setIsWatchScrollHintDismissed(true);
+
+      const nextCount = await Preferences.incrementScheduleScrollHintFullScrollCount();
+      setWatchScrollHintFullScrollCount(nextCount);
+    };
+
+
     return (
-        <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
+      <View style={styles.scheduleFrame}>
+        <AppScreen
+          contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}
+          onScroll={watchLayout ? handleScheduleScroll : undefined}
+        >
           <View style={[ styles.headerRow, watchLayout ? styles.headerRowWatch : undefined ]}>
             {showInScreenBack ? (
               <IconButton icon="arrow-left" onPress={() => navigation.goBack()} accessibilityLabel={Lang.t('goBackBtnLabel')} />
             ) : !watchLayout ? (
               <View style={styles.headerActionSlot} />
             ) : null}
-            <View style={styles.headerText}>
-              <Text variant={watchLayout ? 'titleMedium' : 'titleLarge'} style={[ styles.routeTitle, watchLayout ? styles.routeTitleWatch : undefined ]} numberOfLines={watchLayout ? 1 : 2}>{origin.title}</Text>
-              <Text variant={watchLayout ? 'bodySmall' : 'bodyMedium'} style={[ styles.routeSubtitle, watchLayout ? styles.routeSubtitleWatch : undefined ]} numberOfLines={watchLayout ? 1 : 2}>→ {destination.title}</Text>
+            <View style={[ styles.headerText, watchLayout ? [ styles.headerTextWatch, { width: watchHeaderTextWidth } ] : undefined ]}>
+              <Text
+                variant={watchLayout ? 'titleMedium' : 'titleLarge'}
+                style={[ styles.routeTitle, watchLayout ? styles.routeTitleWatch : undefined ]}
+                numberOfLines={watchLayout ? 1 : 2}
+                adjustsFontSizeToFit={watchLayout}
+                minimumFontScale={0.58}
+                ellipsizeMode="clip"
+              >
+                {origin.title}
+              </Text>
+              <Text
+                variant={watchLayout ? 'bodySmall' : 'bodyMedium'}
+                style={[ styles.routeSubtitle, watchLayout ? styles.routeSubtitleWatch : undefined ]}
+                numberOfLines={watchLayout ? 1 : 2}
+                adjustsFontSizeToFit={watchLayout}
+                minimumFontScale={0.62}
+                ellipsizeMode="clip"
+              >
+                → {destination.title}
+              </Text>
             </View>
             {!watchLayout ? <IconButton icon={isFavorite ? 'star' : 'star-outline'} onPress={toggleFavorite} accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')} /> : null}
           </View>
 
-          <TransitCard style={[ styles.departureBoard, watchLayout ? styles.departureBoardWatch : undefined ]}>
-            {!watchLayout ? <View style={styles.boardTopRow}>
-              <StatusPill tone={sourceTone(scheduleSource)}>{sourceLabel(scheduleSource)}</StatusPill>
-              <OfflineModeHint isOffline={networkErrorDetected} sourceLabel={sourceLabel(scheduleSource)} navigation={navigation} />
-            </View> : null}
-            {!watchLayout ? <Text variant="labelLarge" style={styles.boardLabel}>{Lang.t('nextTripScheduleForMessage')}</Text> : null}
-            <Animated.View style={{ opacity: shouldLoopAnimation ? nextTripViewOpacity : 1 }}>
-              <Text variant={watchLayout ? 'displayMedium' : 'displayLarge'} style={[ styles.heroTime, watchLayout ? styles.heroTimeWatch : undefined ]} accessibilityLabel={`${sourceLabel(scheduleSource)} ${nextTripTime.format('HH:mm')}`}>
-                {nextTripTime.format('HH:mm')}
-              </Text>
-            </Animated.View>
-            {watchLayout ? (
-              <>
-                <Text
-                  variant="titleMedium"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.58}
-                  ellipsizeMode="clip"
-                  style={[
-                    styles.remainingTextWatch,
-                    {
-                      fontSize: watchRemainingTimeFontSize,
-                      lineHeight: watchRemainingTimeFontSize + 4
-                    }
-                  ]}
-                >
-                  {remainingTimeMessage}
-                </Text>
-                <Text variant="labelSmall" style={styles.sourceTextWatch}>{sourceLabel(scheduleSource)}</Text>
+          <WatchScaleItem>
+            <TransitCard style={[ styles.departureBoard, watchLayout ? styles.departureBoardWatch : undefined ]}>
+              {!watchLayout ? <View style={styles.boardTopRow}>
+                <StatusPill tone={sourceTone(scheduleSource)}>{sourceLabel(scheduleSource)}</StatusPill>
                 <OfflineModeHint isOffline={networkErrorDetected} sourceLabel={sourceLabel(scheduleSource)} navigation={navigation} />
-              </>
-            ) : (
-              <StatusPill icon="clock-outline" tone="accent" style={styles.remainingPill}>{remainingTimeMessage}</StatusPill>
-            )}
-          </TransitCard>
-
-          {nextDepartures.length > 1 && !watchLayout ? (
-            <TransitCard>
-              <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('nextDeparturesTitle')}</Text>
-              {nextDepartures.map((departure, index) => (
-                <View key={departure.toISOString()}>
-                  <List.Item
-                    title={departure.format('HH:mm')}
-                    description={index === 0 ? sourceLabel(scheduleSource) : Lang.t('sourceScheduledTime')}
-                    left={props => <List.Icon {...props} icon={index === 0 ? 'train' : 'clock-outline'} />}
-                    right={() => <Text variant="bodyMedium" style={styles.departureDelta}>{formatDepartureDelta(departure)}</Text>}
-                    style={styles.departureRow}
-                  />
-                  {index < nextDepartures.length - 1 ? <Divider /> : null}
-                </View>
-              ))}
+              </View> : null}
+              {!watchLayout ? <Text variant="labelLarge" style={styles.boardLabel}>{Lang.t('nextTripScheduleForMessage')}</Text> : null}
+              <Animated.View style={{ opacity: shouldLoopAnimation ? nextTripViewOpacity : 1 }}>
+                <Text variant={watchLayout ? 'displayMedium' : 'displayLarge'} style={[ styles.heroTime, watchLayout ? styles.heroTimeWatch : undefined ]} accessibilityLabel={`${sourceLabel(scheduleSource)} ${nextTripTime.format('HH:mm')}`}>
+                  {nextTripTime.format('HH:mm')}
+                </Text>
+              </Animated.View>
+              {watchLayout ? (
+                <>
+                  <Text
+                    variant="titleMedium"
+                    numberOfLines={watchLayout ? 2 : 1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.58}
+                    ellipsizeMode="clip"
+                    style={[
+                      styles.remainingTextWatch,
+                      {
+                        fontSize: watchRemainingTimeFontSize,
+                        lineHeight: watchRemainingTimeFontSize + 4
+                      }
+                    ]}
+                  >
+                    {visibleRemainingTimeMessage}
+                  </Text>
+                  <Text variant="labelSmall" style={styles.sourceTextWatch}>{sourceLabel(scheduleSource)}</Text>
+                  <OfflineModeHint isOffline={networkErrorDetected} sourceLabel={sourceLabel(scheduleSource)} navigation={navigation} />
+                </>
+              ) : (
+                <StatusPill icon="clock-outline" tone="accent" style={styles.remainingPill}>{visibleRemainingTimeMessage}</StatusPill>
+              )}
             </TransitCard>
+          </WatchScaleItem>
+
+          {watchRouteActions}
+
+          <WatchScaleItem>
+            <View style={[ styles.actions, responsive.isCompact && !watchLayout ? styles.actionsPhoneCompact : undefined, watchLayout ? styles.actionsWatch : undefined ]}>
+              {!watchLayout ? (
+                <Button mode="outlined" icon="swap-horizontal" onPress={reverseRoute} compact={watchLayout} style={!watchLayout ? styles.actionButton : undefined}>{Lang.t('reverseRouteBtnLabel')}</Button>
+              ) : null}
+              {watchLayout ? (
+                <View style={styles.watchReminderButtonFrame}>
+                  {watchReminderFeedback || watchReminderSwitch}
+                </View>
+              ) : reminderButton}
+            </View>
+          </WatchScaleItem>
+
+          {routeStatus ? (
+            watchLayout ? (
+              <WatchScaleItem>
+                <StatusPill tone="accent" style={styles.statusMessage}>{routeStatus}</StatusPill>
+              </WatchScaleItem>
+            ) : (
+              <StatusPill tone="accent" style={styles.statusMessage}>{routeStatus}</StatusPill>
+            )
           ) : null}
 
-          <View style={[ styles.actions, watchLayout ? styles.actionsWatch : undefined ]}>
-            {!watchLayout ? (
-              <Button mode="outlined" icon="swap-horizontal" onPress={reverseRoute} compact={watchLayout}>{Lang.t('reverseRouteBtnLabel')}</Button>
-            ) : null}
-            {watchLayout ? (
-              <View style={styles.watchReminderButtonFrame}>
-                {watchReminderFeedback || watchReminderSwitch}
-              </View>
-            ) : reminderButton}
-          </View>
+          {departuresList}
 
-          {!watchLayout && reminderStatus ? <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus}</StatusPill> : null}
+          {reminderStatus ? (
+            watchLayout ? (
+              <WatchScaleItem>
+                <StatusPill tone="accent" style={styles.statusMessage}>{compactReminderStatus(reminderStatus)}</StatusPill>
+              </WatchScaleItem>
+            ) : (
+              <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus}</StatusPill>
+            )
+          ) : null}
 
-          {!watchLayout && shouldLoopAnimation ? <RNActivityIndicator color={theme.accent} style={styles.haTimeLoader} /> : null}
+          {shouldLoopAnimation ? (
+            watchLayout ? (
+              <WatchScaleItem>
+                <RNActivityIndicator color={theme.accent} style={styles.haTimeLoaderWatch} />
+              </WatchScaleItem>
+            ) : (
+              <RNActivityIndicator color={theme.accent} style={styles.haTimeLoader} />
+            )
+          ) : null}
+
+          {watchLayout ? <View style={{ height: watchScheduleEndPadding }} /> : null}
         </AppScreen>
+        {watchSideScrollHint}
+      </View>
     );
 }
 
 const styles = StyleSheet.create({
+  scheduleFrame: {
+    flex: 1
+  },
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center'
@@ -661,7 +926,8 @@ const styles = StyleSheet.create({
   },
   stackGapWatch: {
     gap: 5,
-    justifyContent: 'flex-start'
+    justifyContent: 'flex-start',
+    paddingTop: 2
   },
   headerRow: {
     flexDirection: 'row',
@@ -670,7 +936,9 @@ const styles = StyleSheet.create({
   },
   headerRowWatch: {
     justifyContent: 'center',
-    minHeight: 40
+    minHeight: 38,
+    marginTop: 8,
+    marginBottom: 0
   },
   headerActionSlot: {
     width: 48,
@@ -680,30 +948,40 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center'
   },
+  headerTextWatch: {
+    flex: 0,
+    alignSelf: 'center'
+  },
   routeTitle: {
     fontWeight: '900',
     textAlign: 'center'
   },
   routeTitleWatch: {
+    width: '100%',
     fontWeight: '900',
-    fontSize: 21,
-    lineHeight: 25
+    fontSize: 16,
+    lineHeight: 20,
+    includeFontPadding: false
   },
   routeSubtitle: {
     textAlign: 'center'
   },
   routeSubtitleWatch: {
-    opacity: 0.9,
-    fontSize: 16,
-    lineHeight: 19
+    width: '100%',
+    opacity: 0.78,
+    fontSize: 12,
+    lineHeight: 15,
+    includeFontPadding: false
   },
   departureBoard: {
     alignItems: 'stretch'
   },
   departureBoardWatch: {
+    width: '88%',
+    alignSelf: 'center',
     alignItems: 'center',
     marginTop: 0,
-    marginBottom: 0
+    marginBottom: 2
   },
   boardTopRow: {
     flexDirection: 'row',
@@ -724,26 +1002,29 @@ const styles = StyleSheet.create({
     marginVertical: 4
   },
   heroTimeWatch: {
-    marginTop: 0,
-    marginBottom: 0
+    fontSize: 42,
+    lineHeight: 46,
+    marginTop: -1,
+    marginBottom: -1,
+    includeFontPadding: false
   },
   remainingPill: {
     alignSelf: 'center'
   },
   remainingTextWatch: {
     width: '100%',
-    maxWidth: '82%',
+    maxWidth: '92%',
     textAlign: 'center',
     fontWeight: '800',
-    marginTop: 2,
+    marginTop: 0,
     includeFontPadding: false
   },
   sourceTextWatch: {
     textAlign: 'center',
     opacity: 0.62,
-    marginTop: 2,
-    fontSize: 13,
-    lineHeight: 16
+    marginTop: 0,
+    fontSize: 11,
+    lineHeight: 13
   },
   sectionTitle: {
     fontWeight: '800',
@@ -762,12 +1043,92 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8
   },
+  actionsPhoneCompact: {
+    flexDirection: 'column',
+    alignItems: 'center'
+  },
+  actionButton: {
+    width: '100%',
+    maxWidth: 260,
+    alignSelf: 'center'
+  },
   actionsWatch: {
     flexDirection: 'column',
     alignItems: 'center',
     width: '100%',
-    marginTop: 4,
+    marginTop: 0,
     overflow: 'visible'
+  },
+  watchRouteActions: {
+    width: '82%',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    marginTop: 2,
+    marginBottom: 2
+  },
+  watchRouteActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  watchRouteActionIcon: {
+    fontSize: 25,
+    lineHeight: 28,
+    fontWeight: '800'
+  },
+  watchReverseButton: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  watchReverseText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+    textAlign: 'center'
+  },
+  nextDeparturesWatchCard: {
+    width: '78%',
+    alignSelf: 'center',
+    paddingTop: 2,
+    marginTop: 4
+  },
+  sectionTitleWatch: {
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '900',
+    marginBottom: 1
+  },
+  departureRowWatch: {
+    width: '100%',
+    minHeight: 40,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+    marginTop: 3
+  },
+  departureTimeWatch: {
+    fontSize: 18,
+    lineHeight: 21,
+    fontWeight: '900'
+  },
+  departureDeltaWatch: {
+    width: '100%',
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 13,
+    opacity: 0.72,
+    fontWeight: '700'
   },
   watchReminderButtonFrame: {
     width: '100%',
@@ -807,10 +1168,10 @@ const styles = StyleSheet.create({
     fontWeight: '800'
   },
   watchReminderSwitchRow: {
-    minHeight: 38,
-    borderRadius: 22,
-    paddingLeft: 12,
-    paddingRight: 6,
+    minHeight: 40,
+    borderRadius: 20,
+    paddingLeft: 14,
+    paddingRight: 5,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -819,10 +1180,32 @@ const styles = StyleSheet.create({
   watchReminderSwitchLabel: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 14,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 15,
     fontWeight: '800',
     includeFontPadding: false
+  },
+  watchSideScrollHint: {
+    position: 'absolute',
+    zIndex: 20,
+    elevation: 20,
+    overflow: 'hidden'
+  },
+  watchSideScrollHintRounded: {
+    right: 0
+  },
+  watchSideScrollHintSquare: {
+    right: 14,
+    width: 3
+  },
+  watchSideScrollArcRounded: {
+    position: 'absolute',
+    right: 0,
+    borderRightWidth: 3
+  },
+  watchSideScrollArcSquare: {
+    width: 3,
+    borderRadius: 2
   },
   statusMessage: {
     alignSelf: 'center'
@@ -831,5 +1214,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 16,
     right: 16
+  },
+  haTimeLoaderWatch: {
+    alignSelf: 'center',
+    marginTop: 2,
+    marginBottom: 2
   }
 });
