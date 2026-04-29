@@ -85,6 +85,9 @@ if [[ "$ENABLE_RELEASE_BUILDS" == 'true' ]]; then
     echo '=> Loading properties from '"$HOME"'/.gradle/gradle.properties...';
     . "$HOME"/.gradle/gradle.properties;
 
+    echo '=> Increasing Gradle JVM heap for CI Android transforms...';
+    printf '\norg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m\n' >> "$HOME"/.gradle/gradle.properties;
+
     echo '=> Storing temporary encrypted keystore to '"$MYAPP_UPLOAD_STORE_FILE"'.asc...';
     printf -- "$RELEASE_KEYSTORE" > $MYAPP_UPLOAD_STORE_FILE.asc;
 
