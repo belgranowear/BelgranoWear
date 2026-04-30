@@ -23,7 +23,7 @@ import { useTheme } from '../includes/Theme';
 import { AppScreen, TransitCard, useResponsiveMetrics } from './ui';
 
 const APP_REPOSITORY_URL = 'https://github.com/belgranowear/BelgranoWear';
-const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.0.0';
+const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.0.1';
 
 const openURL = url => {
     if (!url) { return; }
@@ -55,7 +55,7 @@ export default function About() {
                 </View>
 
                 <View style={styles.watchIntro}>
-                    <Text style={styles.watchIntroText} numberOfLines={4}>
+                    <Text style={styles.watchIntroText}>
                         {Lang.t('aboutDescription')}
                     </Text>
                     <Text style={styles.watchCreatorText} numberOfLines={2}>
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
         lineHeight: 15
     },
     watchIntro: {
-        width: '84%',
+        width: '86%',
         alignSelf: 'center',
         alignItems: 'center',
         gap: 4

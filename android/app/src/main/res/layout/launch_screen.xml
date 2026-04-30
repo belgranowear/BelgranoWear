@@ -20,7 +20,7 @@
                 android:layout_height="wrap_content"
                 android:indeterminate="true"
                 android:indeterminateTintMode="src_in"
-                android:indeterminateTint="@color/colorPrimary"
+                android:indeterminateTint="@color/splashscreen_progress"
                 android:layout_gravity="center" />
 
             <TextView
@@ -28,7 +28,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:textAlignment="center"
-                android:textColor="#fff"
+                android:textColor="@color/splashscreen_text"
                 android:gravity="center"
                 android:textSize="14sp"
                 android:text="@string/loading_assets" />

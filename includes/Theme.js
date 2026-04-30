@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 
 import * as SystemUI from 'expo-system-ui';
 
@@ -142,6 +142,18 @@ const createThemes = scheme => {
     return { appTheme, paperTheme, navigationTheme };
 };
 
+const isWearOSDevice = () => Platform.constants?.uiMode === 'watch';
+
+const resolveSystemScheme = systemScheme => {
+    if (isWearOSDevice()) {
+        // WearOS surfaces are dark-first. Some Android builds report "light" when the
+        // host Activity uses a light native theme, so keep "Sistema" safely dark on watches.
+        return 'dark';
+    }
+
+    return systemScheme === 'light' ? 'light' : 'dark';
+};
+
 export function ThemeProvider({ children }) {
     const systemScheme = useColorScheme();
     const [ themeMode, setThemeModeState ] = useState('system');
@@ -151,7 +163,7 @@ export function ThemeProvider({ children }) {
     }, []);
 
     const activeScheme = themeMode === 'system'
-        ? (systemScheme === 'light' ? 'light' : 'dark')
+        ? resolveSystemScheme(systemScheme)
         : themeMode;
 
     const { appTheme, paperTheme, navigationTheme } = useMemo(
