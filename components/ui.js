@@ -126,6 +126,8 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
     const horizontalPadding = responsive.isWatch ? 0 : theme.spacing.lg;
     const scrollY = useRef(new Animated.Value(0)).current;
     const [ viewportHeight, setViewportHeight ] = useState(0);
+    const [ contentHeight, setContentHeight ] = useState(0);
+    const [ scrollOffset, setScrollOffset ] = useState(0);
 
     const frameStyle = [
         styles.screen,
@@ -150,6 +152,14 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
         scrollY,
         viewportHeight
     };
+    const shouldShowWatchScrollIndicator = responsive.isWatch && contentHeight > viewportHeight + 4;
+    const handleScroll = event => {
+        setScrollOffset(event.nativeEvent.contentOffset.y);
+
+        if (onScroll) {
+            onScroll(event);
+        }
+    };
 
     if (!scroll) {
         return (
@@ -169,10 +179,12 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
                     onLayout={event => setViewportHeight(event.nativeEvent.layout.height)}
                     onScroll={Animated.event(
                         [ { nativeEvent: { contentOffset: { y: scrollY } } } ],
-                        { useNativeDriver: true, listener: onScroll }
+                        { useNativeDriver: true, listener: handleScroll }
                     )}
                     scrollEventThrottle={16}
-                    showsVerticalScrollIndicator={!responsive.isWatch}
+                    showsVerticalScrollIndicator
+                    persistentScrollbar={Platform.OS === 'android' && responsive.isWatch}
+                    onContentSizeChange={(_, height) => setContentHeight(height)}
                     contentContainerStyle={[
                         styles.scrollContent,
                         { paddingBottom: responsive.isWatch ? responsive.roundBottomInset : theme.spacing.xl },
@@ -181,8 +193,70 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
                 >
                     {responsive.isWatch ? <View style={[ watchContentStyle, contentStyle ]}>{children}</View> : children}
                 </Animated.ScrollView>
+                {shouldShowWatchScrollIndicator ? (
+                    <WatchArcScrollIndicator
+                        contentHeight={contentHeight}
+                        responsive={responsive}
+                        scrollOffset={scrollOffset}
+                        theme={theme}
+                        viewportHeight={viewportHeight}
+                    />
+                ) : null}
             </WatchScrollMetricsContext.Provider>
         </SafeAreaView>
+    );
+}
+
+function WatchArcScrollIndicator({ contentHeight, responsive, scrollOffset, theme, viewportHeight }) {
+    const segmentCount = 72;
+    const thumbSegmentMin = 8;
+    const arcStartDegrees = -62;
+    const arcEndDegrees = 62;
+    const centerX = responsive.width / 2;
+    const centerY = responsive.height / 2;
+    const segmentWidth = 3;
+    const segmentHeight = 8;
+    const radius = (responsive.shortestSide / 2) - (segmentWidth / 2);
+    const maxScrollY = Math.max(1, contentHeight - viewportHeight);
+    const scrollProgress = clamp(scrollOffset / maxScrollY, 0, 1);
+    const visibleRatio = clamp(viewportHeight / Math.max(1, contentHeight), 0.16, 0.9);
+    const thumbSegmentCount = clamp(segmentCount * visibleRatio, thumbSegmentMin, segmentCount);
+    const maxThumbStart = segmentCount - thumbSegmentCount;
+    const thumbStart = scrollProgress * maxThumbStart;
+    const thumbEnd = thumbStart + thumbSegmentCount;
+    const trackOpacity = 0.06;
+    const thumbOpacity = 0.58;
+
+    return (
+        <View pointerEvents="none" style={styles.watchArcScrollIndicator}>
+            {Array.from({ length: segmentCount }, (_, index) => {
+                const progress = segmentCount === 1 ? 0 : index / (segmentCount - 1);
+                const degrees = arcStartDegrees + ((arcEndDegrees - arcStartDegrees) * progress);
+                const radians = (degrees * Math.PI) / 180;
+                const segmentStart = index;
+                const segmentEnd = index + 1;
+                const thumbCoverage = clamp(Math.min(segmentEnd, thumbEnd) - Math.max(segmentStart, thumbStart), 0, 1);
+                const opacity = trackOpacity + ((thumbOpacity - trackOpacity) * thumbCoverage);
+
+                return (
+                    <View
+                        key={`watch-scroll-arc-${index}`}
+                        style={[
+                            styles.watchArcScrollIndicatorSegment,
+                            {
+                                left: centerX + (Math.cos(radians) * radius) - (segmentWidth / 2),
+                                top: centerY + (Math.sin(radians) * radius) - (segmentHeight / 2),
+                                width: segmentWidth,
+                                height: segmentHeight,
+                                backgroundColor: thumbCoverage > 0 ? theme.accent : theme.text,
+                                opacity,
+                                transform: [ { rotate: `${degrees}deg` } ]
+                            }
+                        ]}
+                    />
+                );
+            })}
+        </View>
     );
 }
 
@@ -327,6 +401,18 @@ const styles = StyleSheet.create({
         flexGrow: 1,
         alignItems: 'stretch',
         justifyContent: 'flex-start'
+    },
+    watchArcScrollIndicator: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0
+    },
+    watchArcScrollIndicatorSegment: {
+        position: 'absolute',
+        borderRadius: 999,
+        overflow: 'hidden'
     },
     card: {
         borderWidth: StyleSheet.hairlineWidth,
