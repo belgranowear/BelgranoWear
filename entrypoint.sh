@@ -290,13 +290,13 @@ build_wearos_artifacts() {
     rm -rf "$WEAROS_TEMP_PATH"
     mkdir -p "$WEAROS_TEMP_PATH"
     rsync -a \
-        --exclude wearos \
-        --exclude artifacts \
-        --exclude .git \
-        --exclude ios \
-        --exclude 'android/.gradle' \
-        --exclude 'android/build' \
-        --exclude 'android/app/build' \
+        --exclude /wearos \
+        --exclude /artifacts \
+        --exclude /.git \
+        --exclude /ios \
+        --exclude /android/.gradle \
+        --exclude /android/build \
+        --exclude /android/app/build \
         ./ "$WEAROS_TEMP_PATH/"
     endgroup
 
