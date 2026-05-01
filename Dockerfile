@@ -18,6 +18,15 @@ RUN curl -o /tmp/android-commandlinetools-linux.zip https://dl.google.com/androi
     mv -v cmdline-tools /tmp/android/sdk/cmdline-tools/latest &&\
     chmod +x /tmp/android/sdk/cmdline-tools/latest/bin/*
 
+ENV ANDROID_HOME=/tmp/android/sdk
+ENV ANDROID_SDK_ROOT=/tmp/android/sdk
+ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
+
+# Install cached Android build dependencies in the image layer. The app source is
+# still mounted at runtime, so source/asset changes do not invalidate this layer.
+RUN yes | sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1' &&\
+    yes | sdkmanager --licenses
+
 # Refresh SSL certificates
 RUN rm -f /etc/ssl/certs/ca-bundle.crt &&\
     apt-get update && apt-get reinstall -y --no-install-recommends ca-certificates &&\
@@ -31,10 +40,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/*
 
-ENV ANDROID_HOME=/tmp/android/sdk
-ENV ANDROID_SDK_ROOT=/tmp/android/sdk
-ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
-
 # Install JQ
 RUN apt-get update && apt-get install -y --no-install-recommends jq &&\
     apt-get clean &&\
@@ -44,5 +49,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends jq &&\
 RUN apt-get update && apt-get install -y --no-install-recommends file &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/*
+
+# Keep Docker layer cache traceable to package/build metadata without baking
+# application source or assets into the toolchain image.
+COPY package.json package-lock.json docker-compose.yml /tmp/build-metadata/
+RUN sha256sum /tmp/build-metadata/* > /tmp/build-metadata.sha256
 
 ENTRYPOINT [ "./entrypoint.sh" ]

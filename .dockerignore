@@ -1,0 +1,8 @@
+# Docker image contains only the build toolchain plus dependency metadata.
+# Source/assets are mounted at runtime so code/assets do not invalidate toolchain layers.
+*
+!Dockerfile
+!.dockerignore
+!docker-compose.yml
+!package.json
+!package-lock.json

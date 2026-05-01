@@ -8,21 +8,41 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ar.com.facundomontero.belgranowear"
+      "bundleIdentifier": "ar.com.facundomontero.belgranowear",
+      "buildNumber": "43"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "ar.com.facundomontero.belgranowear"
+      "package": "ar.com.facundomontero.belgranowear",
+      "versionCode": 45,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.INTERNET",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
+        "com.google.android.gms.permission.AD_ID"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-localization",
-      "expo-notifications"
-    ]
+      "expo-notifications",
+      "./plugins/withBelgranoNativeConfig"
+    ],
+    "scheme": "ar.com.facundomontero.belgranowear",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#fff8f6"
+    }
   }
 }

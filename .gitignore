@@ -40,3 +40,9 @@ artifacts
 
 # WearOS temporary files
 wearos
+# CI scratch files
+.rebuild-summary.md
+
+# Generated native projects
+/android/
+/ios/

@@ -4,27 +4,170 @@ on:
   push:
     branches:
       - "master"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Native platform to prebuild/build"
+        required: true
+        default: "android"
+        type: choice
+        options:
+          - android
+          - ios
+          - both
+
+permissions:
+  contents: write
 
 concurrency:
-    group: ${{ github.ref }}
-    cancel-in-progress: false
+  group: rebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOCKER_IMAGE_TAG: belgranowear-rebuild:${{ github.sha }}
+  # Keeps the first possible Android/WearOS pair at 45/46 while github.run_number increments.
+  ANDROID_VERSION_CODE_OFFSET: 43
 
 jobs:
-
   release:
+    name: Rebuild native artifacts
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run container
-        uses: ./
-        env:
-            RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
-            RELEASE_KEYSTORE_PASSPHRASE: ${{ secrets.RELEASE_KEYSTORE_PASSPHRASE }}
-            GRADLE_PROPERTIES: ${{ secrets.GRADLE_PROPERTIES }}
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve selected platform
+        id: platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PLATFORM="${{ inputs.platform }}"
+          else
+            PLATFORM="android"
+          fi
+
+          case "$PLATFORM" in
+            android|ios|both) ;;
+            *) echo "Unsupported platform: $PLATFORM" >&2; exit 1 ;;
+          esac
+
+          echo "value=$PLATFORM" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Rebuild request"
+            echo "- Event: ${{ github.event_name }}"
+            echo "- Platform: $PLATFORM"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compute source/assets build fingerprint
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          FINGERPRINT=$(
+            git ls-files -z -- \
+              .env App.js app.json babel.config.js package.json package-lock.json \
+              assets components includes plugins Dockerfile docker-compose.yml entrypoint.sh \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}'
+          )
+          echo "value=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+          echo "- Build fingerprint: \`$FINGERPRINT\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve Android version codes
+        id: version_codes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GitHub documents github.run_number as a per-workflow number that
+          # starts at 1 and increments for each new run. Reserve two versionCode
+          # values per workflow run: base Android first, WearOS immediately next.
+          BASE_VERSION_CODE=$((ANDROID_VERSION_CODE_OFFSET + (${{ github.run_number }} * 2)))
+          WEAR_VERSION_CODE=$((BASE_VERSION_CODE + 1))
+
+          echo "base=$BASE_VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "wear=$WEAR_VERSION_CODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "- GitHub run number: \`${{ github.run_number }}\`"
+            echo "- Android base versionCode: \`$BASE_VERSION_CODE\`"
+            echo "- WearOS versionCode: \`$WEAR_VERSION_CODE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build cached Docker toolchain image
+        uses: docker/build-push-action@v6
         with:
-          command: docker compose up --build
-          working-directory: $GITHUB_WORKSPACE
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.DOCKER_IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run selected native rebuild inside cached container
+        shell: bash
+        env:
+          PLATFORM: ${{ steps.platform.outputs.value }}
+          BUILD_FINGERPRINT: ${{ steps.fingerprint.outputs.value }}
+          ANDROID_BASE_VERSION_CODE: ${{ steps.version_codes.outputs.base }}
+          ANDROID_WEAR_VERSION_CODE: ${{ steps.version_codes.outputs.wear }}
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+          RELEASE_KEYSTORE_PASSPHRASE: ${{ secrets.RELEASE_KEYSTORE_PASSPHRASE }}
+          GRADLE_PROPERTIES: ${{ secrets.GRADLE_PROPERTIES }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rm -f .rebuild-summary.md
+          docker run --rm \
+            -e ACTION=build \
+            -e MODE=publish \
+            -e PLATFORM \
+            -e BUILD_FINGERPRINT \
+            -e ANDROID_BASE_VERSION_CODE \
+            -e ANDROID_WEAR_VERSION_CODE \
+            -e RELEASE_KEYSTORE \
+            -e RELEASE_KEYSTORE_PASSPHRASE \
+            -e GRADLE_PROPERTIES \
+            -e GITHUB_TOKEN \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_ACTIONS=true \
+            -e GITHUB_STEP_SUMMARY=/app/.rebuild-summary.md \
+            -v "${GITHUB_WORKSPACE}:/app" \
+            -w /app \
+            "${DOCKER_IMAGE_TAG}"
+
+      - name: Append container build summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f .rebuild-summary.md ]]; then
+            cat .rebuild-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-artifacts-${{ steps.platform.outputs.value }}-${{ steps.fingerprint.outputs.value }}
+          path: artifacts/*
+          if-no-files-found: ignore
+
+      - name: Summarize generated artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "## Generated artifacts" >> "$GITHUB_STEP_SUMMARY"
+          if compgen -G "artifacts/*" > /dev/null; then
+            for file in artifacts/*; do
+              size=$(wc -c < "$file" | xargs)
+              echo "- $(basename "$file") (${size} bytes)" >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "- None" >> "$GITHUB_STEP_SUMMARY"
+          fi
