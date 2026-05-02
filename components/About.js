@@ -23,7 +23,7 @@ import { useTheme } from '../includes/Theme';
 import { AppScreen, TransitCard, useResponsiveMetrics } from './ui';
 
 const APP_REPOSITORY_URL = 'https://github.com/belgranowear/BelgranoWear';
-const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.0.1';
+const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
 
 const openURL = url => {
     if (!url) { return; }
