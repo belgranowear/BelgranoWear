@@ -23,13 +23,13 @@ import { MD5 } from 'crypto-js';
 import {
   ActivityIndicator,
   Button,
-  IconButton,
   List,
   Surface,
   Text
 } from 'react-native-paper';
 
 import OfflineModeHint from './OfflineModeHint';
+import { NextSchedulePane } from './NextSchedule';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 
 import Cache       from '../includes/Cache';
@@ -66,7 +66,7 @@ function SettingsButton({ navigation }) {
     );
 }
 
-function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, compact = false, manualOrigin = false }) {
+function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, compact = false, manualOrigin = false, selected = false }) {
     const { theme } = useTheme();
 
     if (compact) {
@@ -129,28 +129,55 @@ function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityH
             elevation={1}
             style={[
                 styles.stationSurface,
-                { backgroundColor: theme.paperTheme.colors.surfaceVariant }
+                { backgroundColor: selected ? theme.accentSoft : theme.paperTheme.colors.surfaceVariant }
             ]}
         >
-            <List.Item
-                title={item.title}
-                titleNumberOfLines={2}
-                titleStyle={styles.stationTitle}
-                left={props => <List.Icon {...props} icon="train" />}
-                right={props => onFavoritePress
-                    ? <IconButton
-                        {...props}
-                        icon={isFavorite ? 'star' : 'star-outline'}
+            <View style={styles.stationRow}>
+                <Pressable
+                    onPress={onPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.title}
+                    accessibilityHint={accessibilityHint}
+                    style={({ pressed }) => [
+                        styles.stationRowMain,
+                        { opacity: pressed ? 0.72 : 1 }
+                    ]}
+                >
+                    <Text style={[ styles.stationRowIcon, { color: theme.paperTheme.colors.onSurfaceVariant } ]}>🚆</Text>
+                    <Text numberOfLines={2} style={styles.stationTitle}>{item.title}</Text>
+                </Pressable>
+                {onFavoritePress ? (
+                    <Pressable
                         accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isFavorite }}
                         onPress={onFavoritePress}
-                      />
-                    : <List.Icon {...props} icon="chevron-right" />}
-                onPress={onPress}
-                accessibilityRole="button"
-                accessibilityLabel={item.title}
-                accessibilityHint={accessibilityHint}
-                style={styles.stationRow}
-            />
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                            styles.stationRowSideAction,
+                            { opacity: pressed ? 0.72 : 1 }
+                        ]}
+                    >
+                        <Text style={[ styles.stationRowSideActionText, { color: isFavorite ? theme.accentStrong : theme.paperTheme.colors.onSurfaceVariant } ]}>
+                            {isFavorite ? '★' : '☆'}
+                        </Text>
+                    </Pressable>
+                ) : (
+                    <Pressable
+                        onPress={onPress}
+                        accessibilityRole="button"
+                        accessibilityLabel={item.title}
+                        accessibilityHint={accessibilityHint}
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                            styles.stationRowSideAction,
+                            { opacity: pressed ? 0.72 : 1 }
+                        ]}
+                    >
+                        <Text style={[ styles.stationRowSideActionText, { color: theme.paperTheme.colors.onSurfaceVariant } ]}>›</Text>
+                    </Pressable>
+                )}
+            </View>
         </Surface>
     );
 }
@@ -208,6 +235,7 @@ export default function DestinationPicker({ navigation }) {
     const { theme, isAndroidDynamicColorAvailable } = useTheme();
     const previewMode = getUIPreviewMode();
     const watchLayout = responsive.isWatch || isWatchUIPreview();
+    const tabletTwoPane = responsive.isTwoPane && !watchLayout;
     const watchListEndPadding = watchLayout ? Math.round(responsive.shortestSide * 0.2) : 0;
 
     const [ originStation,              setOriginStation              ] = useState();
@@ -225,6 +253,7 @@ export default function DestinationPicker({ navigation }) {
     const [ manualOriginReason,         setManualOriginReason         ] = useState();
     const [ favoriteTrips,              setFavoriteTrips              ] = useState([]);
     const [ recentTrips,                setRecentTrips                ] = useState([]);
+    const [ tabletDestination,          setTabletDestination          ] = useState();
 
     const destinationList = useMemo(() => {
         if (!allDestinationsList) { return []; }
@@ -572,6 +601,8 @@ export default function DestinationPicker({ navigation }) {
     const selectOrigin = station => {
         setOriginStation(station);
         setOriginDistanceMeters(undefined);
+        setTabletDestination(undefined);
+        setSelectedId(undefined);
         setShowManualOriginPicker(false);
         setLoadFinished(true);
     };
@@ -580,6 +611,11 @@ export default function DestinationPicker({ navigation }) {
         setSelectedId(item.id);
         await Preferences.recordRecentTrip(originStation, item);
         await refreshPreferences();
+
+        if (tabletTwoPane) {
+            setTabletDestination(item);
+            return;
+        }
 
         navigation.navigate('NextSchedule', {
             origin:       originStation,
@@ -647,6 +683,34 @@ export default function DestinationPicker({ navigation }) {
         detectOriginStation();
     }, [ trainStationsMap, allDestinationsList, showManualOriginPicker ]);
 
+    useEffect(() => {
+        if (!tabletTwoPane || !originStation || showManualOriginPicker) { return; }
+
+        const currentDestinationIsValid = tabletDestination
+            && destinationList.some(item => item.id === tabletDestination.id)
+            && tabletDestination.id !== originStation.id;
+
+        if (currentDestinationIsValid) {
+            setSelectedId(tabletDestination.id);
+            return;
+        }
+
+        const nextDestination = favoriteDestinations[0] || prioritizedDestinations[0];
+
+        if (nextDestination) {
+            setTabletDestination(nextDestination);
+            setSelectedId(nextDestination.id);
+        }
+    }, [ tabletTwoPane, originStation, showManualOriginPicker, destinationList, favoriteDestinations, prioritizedDestinations, tabletDestination ]);
+
+    const replaceTabletRoute = nextRoute => {
+        setOriginStation(nextRoute.origin);
+        setOriginDistanceMeters(undefined);
+        setTabletDestination(nextRoute.destination);
+        setSelectedId(nextRoute.destination.id);
+        setShowManualOriginPicker(false);
+    };
+
     const renderDestinationItem = ({ item }) => (
         <StationRow
             item={item}
@@ -697,7 +761,7 @@ export default function DestinationPicker({ navigation }) {
         return <LoadingState operation={currentOperation} />;
     }
 
-    if (showManualOriginPicker) {
+    if (showManualOriginPicker && !tabletTwoPane) {
         return withOptionalSwipeExit(
                 <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.manualOriginContentWatch : undefined ]}>
                     {watchLayout ? (
@@ -736,6 +800,112 @@ export default function DestinationPicker({ navigation }) {
         ...favoriteDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('favoritesSectionTitle') })),
         ...recentDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('recentsSectionTitle') }))
     ];
+
+    if (tabletTwoPane) {
+        const isChoosingTabletOrigin = showManualOriginPicker || !originStation;
+        const canShowTabletSchedule = originStation && tabletDestination && originStation.id !== tabletDestination.id;
+
+        return withOptionalSwipeExit(
+            <AppScreen scroll={false} contentWidth="wide" contentStyle={styles.tabletShell}>
+                <View style={[ styles.tabletMasterPane, { width: responsive.tabletMasterWidth } ]}>
+                    <View style={styles.tabletPaneHeader}>
+                        <View style={styles.headerTitleBlock}>
+                            <Text variant="headlineSmall" style={styles.headerTitle}>
+                                {isChoosingTabletOrigin ? Lang.t('chooseOriginHint') : Lang.t('selectDestinationHint')}
+                            </Text>
+                            <Text variant="bodyMedium" numberOfLines={isChoosingTabletOrigin ? 3 : 2}>
+                                {isChoosingTabletOrigin
+                                    ? (manualOriginReason || Lang.t('manualOriginFallbackMessage'))
+                                    : originStation?.title}
+                            </Text>
+                        </View>
+                        <SettingsButton navigation={navigation} />
+                    </View>
+
+                    <ScrollView
+                        style={styles.tabletMasterScroll}
+                        contentContainerStyle={styles.tabletMasterContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {isChoosingTabletOrigin ? (
+                            <FlatList
+                                data={allDestinationsList || []}
+                                renderItem={renderOriginItem}
+                                keyExtractor={item => item.id}
+                                scrollEnabled={false}
+                                showsVerticalScrollIndicator={false}
+                                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                            />
+                        ) : (
+                            <>
+                                <TransitCard style={styles.routePanel}>
+                                    <View style={styles.routePanelTop}>
+                                        <View style={[ styles.routeIcon, { backgroundColor: theme.accent } ]}><Text variant="titleMedium" style={{ color: theme.textInverse }}>🚆</Text></View>
+                                        <View style={styles.routePanelText}>
+                                            <Text variant="labelMedium">{Lang.t('fromStationLabel')}</Text>
+                                            <Text variant="titleLarge" style={styles.routeOrigin} numberOfLines={1}>{originStation?.title}</Text>
+                                        </View>
+                                    </View>
+                                    <View style={styles.routePanelActions}>
+                                        <Button mode="outlined" icon="map-marker" onPress={() => setShowManualOriginPicker(true)}>{Lang.t('changeOriginBtnLabel')}</Button>
+                                        <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
+                                    </View>
+                                    {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
+                                        <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
+                                    ) : null}
+                                    {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
+                                </TransitCard>
+
+                                {quickTrips.length > 0 ? (
+                                    <View>
+                                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                                        <View style={styles.tabletQuickRouteList}>
+                                            {quickTrips.map(trip => (
+                                                <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                                            ))}
+                                        </View>
+                                    </View>
+                                ) : null}
+
+                                <View>
+                                    <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text>
+                                    <FlatList
+                                        data={prioritizedDestinations}
+                                        renderItem={renderDestinationItem}
+                                        keyExtractor={item => item.id}
+                                        extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
+                                        scrollEnabled={false}
+                                        showsVerticalScrollIndicator={false}
+                                        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                                    />
+                                </View>
+                            </>
+                        )}
+                    </ScrollView>
+                </View>
+
+                <View style={styles.tabletDetailPane}>
+                    {canShowTabletSchedule ? (
+                        <NextSchedulePane
+                            key={`${originStation.id}:${tabletDestination.id}`}
+                            navigation={navigation}
+                            origin={originStation}
+                            destination={tabletDestination}
+                            segmentsList={segmentsList}
+                            holidaysList={holidaysList}
+                            onReplaceRoute={replaceTabletRoute}
+                            forcePreviewData={Boolean(previewMode)}
+                        />
+                    ) : (
+                        <TransitCard style={styles.tabletEmptyDetail}>
+                            <Text variant="headlineSmall" style={styles.centerText}>{Lang.t('selectDestinationHint')}</Text>
+                            <Text variant="bodyMedium" style={styles.centerText}>{Lang.t('chooseOriginHint')}</Text>
+                        </TransitCard>
+                    )}
+                </View>
+            </AppScreen>
+        );
+    }
 
     return withOptionalSwipeExit(
             <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
@@ -851,6 +1021,45 @@ const styles = StyleSheet.create({
     },
     stackGapWatch: {
         gap: 4
+    },
+    tabletShell: {
+        flex: 1,
+        minHeight: 0,
+        flexDirection: 'row',
+        alignItems: 'stretch',
+        gap: 16
+    },
+    tabletMasterPane: {
+        flexShrink: 0,
+        minHeight: 0
+    },
+    tabletDetailPane: {
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0
+    },
+    tabletPaneHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        marginBottom: 12
+    },
+    tabletMasterScroll: {
+        flex: 1,
+        minHeight: 0
+    },
+    tabletMasterContent: {
+        gap: 12,
+        paddingBottom: 24
+    },
+    tabletQuickRouteList: {
+        gap: 8
+    },
+    tabletEmptyDetail: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center'
     },
     manualOriginContentWatch: {
         gap: 6,
@@ -1055,8 +1264,38 @@ const styles = StyleSheet.create({
         alignItems: 'center'
     },
     stationRow: {
-        minHeight: 58,
-        paddingVertical: 4
+        minHeight: 60,
+        flexDirection: 'row',
+        alignItems: 'stretch'
+    },
+    stationRowMain: {
+        flex: 1,
+        minWidth: 0,
+        minHeight: 60,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingLeft: 18,
+        paddingRight: 8,
+        paddingVertical: 8
+    },
+    stationRowIcon: {
+        width: 24,
+        textAlign: 'center',
+        fontSize: 19,
+        lineHeight: 23
+    },
+    stationRowSideAction: {
+        width: 56,
+        minHeight: 60,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    stationRowSideActionText: {
+        textAlign: 'center',
+        fontSize: 29,
+        lineHeight: 33,
+        fontWeight: '700'
     },
     stationRowWatch: {
         minHeight: 52,

@@ -98,7 +98,23 @@ const compactReminderStatus = message => {
   return message;
 };
 
+export function NextSchedulePane({ navigation, origin, destination, segmentsList, holidaysList, onReplaceRoute, forcePreviewData = false }) {
+    return (
+      <NextScheduleContent
+        navigation={navigation}
+        route={{ params: { origin, destination, segmentsList, holidaysList } }}
+        embedded
+        forcePreviewData={forcePreviewData}
+        onReplaceRoute={onReplaceRoute}
+      />
+    );
+}
+
 export default function NextSchedule({ navigation, route }) {
+    return <NextScheduleContent navigation={navigation} route={route} />;
+}
+
+function NextScheduleContent({ navigation, route, embedded = false, forcePreviewData = false, onReplaceRoute }) {
     const { theme }  = useTheme();
     const responsive = useResponsiveMetrics();
     const previewMode = getUIPreviewMode();
@@ -389,11 +405,20 @@ export default function NextSchedule({ navigation, route }) {
     };
 
     const reverseRoute = () => {
-      navigation.replace('NextSchedule', {
+      const nextRoute = {
         origin:       destination,
         destination:  origin,
         segmentsList: route.params.segmentsList,
         holidaysList: route.params.holidaysList
+      };
+
+      if (onReplaceRoute) {
+        onReplaceRoute(nextRoute);
+        return;
+      }
+
+      navigation.replace('NextSchedule', {
+        ...nextRoute
       });
     };
 
@@ -440,7 +465,7 @@ export default function NextSchedule({ navigation, route }) {
       refreshFavoriteState();
       refreshReminderState();
 
-      if (previewMode === 'schedule' || previewMode === 'watch' || previewMode === 'watch-schedule') {
+      if (forcePreviewData || previewMode === 'schedule' || previewMode === 'watch' || previewMode === 'watch-schedule') {
         const previewDepartures = [ dayjs().add(14, 'minute'), dayjs().add(36, 'minute'), dayjs().add(58, 'minute') ];
         setNextTripTime(previewDepartures[0]);
         setNextDepartures(previewDepartures);
@@ -781,8 +806,10 @@ export default function NextSchedule({ navigation, route }) {
     return (
       <View style={styles.scheduleFrame}>
         <AppScreen
-          contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}
+          contentWidth={embedded ? 'full' : 'normal'}
+          contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined, embedded && !watchLayout ? styles.stackGapEmbedded : undefined ]}
           onScroll={watchLayout ? handleScheduleScroll : undefined}
+          style={embedded ? styles.embeddedScreen : undefined}
         >
           <View style={[ styles.headerRow, watchLayout ? styles.headerRowWatch : undefined ]}>
             {showInScreenBack ? (
@@ -914,6 +941,11 @@ const styles = StyleSheet.create({
   scheduleFrame: {
     flex: 1
   },
+  embeddedScreen: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0
+  },
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center'
@@ -928,6 +960,9 @@ const styles = StyleSheet.create({
   },
   stackGap: {
     gap: 12
+  },
+  stackGapEmbedded: {
+    gap: 10
   },
   stackGapWatch: {
     gap: 5,

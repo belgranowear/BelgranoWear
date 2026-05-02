@@ -99,9 +99,15 @@ export function useResponsiveMetrics() {
     const longestSide = Math.max(width, height);
     const fontScale = PixelRatio.getFontScale();
     const watch = isWatch() || (Platform.OS === 'android' && shortestSide <= 500 && Math.abs(width - height) <= 32);
+    const tablet = !watch && shortestSide >= 600;
+    const twoPane = tablet && width >= 720;
     const roundTopInset = watch ? clamp(shortestSide * 0.035, 8, 18) : 0;
     const roundBottomInset = 0;
     const roundFlowWidth = watch ? clamp(shortestSide * 0.92, 190, 420) : width;
+    const contentMaxWidth = tablet ? 720 : undefined;
+    const wideContentMaxWidth = tablet ? 1040 : undefined;
+    const tabletPaneGap = tablet ? 16 : 0;
+    const tabletMasterWidth = tablet ? clamp(width * 0.36, 280, 360) : undefined;
 
     return {
         width,
@@ -110,7 +116,14 @@ export function useResponsiveMetrics() {
         longestSide,
         fontScale,
         isCompact: shortestSide <= 430,
+        isTablet: tablet,
+        isTwoPane: twoPane,
         isWatch: watch,
+        layoutClass: watch ? 'watch' : (tablet ? 'tablet' : 'phone'),
+        contentMaxWidth,
+        wideContentMaxWidth,
+        tabletPaneGap,
+        tabletMasterWidth,
         roundInset: roundTopInset,
         roundTopInset,
         roundBottomInset,
@@ -120,14 +133,17 @@ export function useResponsiveMetrics() {
     };
 }
 
-export function AppScreen({ children, scroll = true, contentStyle, style, onScroll }) {
+export function AppScreen({ children, scroll = true, contentStyle, style, onScroll, contentWidth = 'normal' }) {
     const { theme } = useTheme();
     const responsive = useResponsiveMetrics();
-    const horizontalPadding = responsive.isWatch ? 0 : theme.spacing.lg;
+    const horizontalPadding = responsive.isWatch ? 0 : (responsive.isTablet ? theme.spacing.xl : theme.spacing.lg);
     const scrollY = useRef(new Animated.Value(0)).current;
     const [ viewportHeight, setViewportHeight ] = useState(0);
     const [ contentHeight, setContentHeight ] = useState(0);
     const [ scrollOffset, setScrollOffset ] = useState(0);
+    const selectedContentMaxWidth = !responsive.isWatch && responsive.isTablet && contentWidth !== 'full'
+        ? (contentWidth === 'wide' ? responsive.wideContentMaxWidth : responsive.contentMaxWidth)
+        : undefined;
 
     const frameStyle = [
         styles.screen,
@@ -139,13 +155,14 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
         },
         style
     ];
-    const watchContentStyle = responsive.isWatch
+    const boundedContentStyle = responsive.isWatch || selectedContentMaxWidth
         ? {
             width: '100%',
-            maxWidth: responsive.roundFlowWidth,
+            maxWidth: responsive.isWatch ? responsive.roundFlowWidth : selectedContentMaxWidth,
             alignSelf: 'center'
         }
         : undefined;
+    const shouldWrapContent = Boolean(boundedContentStyle);
 
     const metrics = {
         enabled: responsive.isWatch && scroll,
@@ -165,7 +182,7 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
         return (
             <SafeAreaView style={frameStyle}>
                 <WatchScrollMetricsContext.Provider value={{ ...metrics, enabled: false }}>
-                    <View style={[ styles.fullHeight, watchContentStyle, contentStyle ]}>{children}</View>
+                    <View style={[ styles.fullHeight, boundedContentStyle, contentStyle ]}>{children}</View>
                 </WatchScrollMetricsContext.Provider>
             </SafeAreaView>
         );
@@ -188,10 +205,10 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
                     contentContainerStyle={[
                         styles.scrollContent,
                         { paddingBottom: responsive.isWatch ? responsive.roundBottomInset : theme.spacing.xl },
-                        responsive.isWatch ? undefined : contentStyle
+                        shouldWrapContent ? undefined : contentStyle
                     ]}
                 >
-                    {responsive.isWatch ? <View style={[ watchContentStyle, contentStyle ]}>{children}</View> : children}
+                    {shouldWrapContent ? <View style={[ boundedContentStyle, contentStyle ]}>{children}</View> : children}
                 </Animated.ScrollView>
                 {shouldShowWatchScrollIndicator ? (
                     <WatchArcScrollIndicator
