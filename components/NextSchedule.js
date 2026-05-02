@@ -18,6 +18,7 @@ import IDomParser from 'advanced-html-parser';
 
 import dayjs    from 'dayjs';
 import duration     from 'dayjs/plugin/duration';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 dayjs.extend(duration);
 
@@ -126,6 +127,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       : responsive.shortestSide;
     const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.78) : undefined;
     const phoneActionButtonCompact = !watchLayout && responsive.isCompact;
+    const tabletActionButton = !watchLayout && (embedded || responsive.isTablet);
     const watchScrollHintIsRounded = watchLayout && Math.abs(screenDimensions.width - screenDimensions.height) <= 32;
     const watchHeaderTextWidth = watchLayout
       ? Math.round(responsive.roundSafeWidth * (watchScrollHintIsRounded ? 0.66 : 0.84))
@@ -585,22 +587,62 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       );
     }
 
-    const reminderButton = (
+    const reminderButtonLabel = isReminderActive
+      ? (watchLayout ? Lang.t('reminderSetShortMessage') : Lang.t('cancelReminderBtnLabel'))
+      : (watchLayout ? Lang.t('remindMeShortBtnLabel') : Lang.t('remindMeBtnLabel'));
+    const reminderButtonIcon = isReminderActive ? 'check' : (watchLayout ? 'checkbox-blank-outline' : 'bell-outline');
+    const reminderButton = tabletActionButton ? (
+      <Pressable
+        onPress={setDepartureReminder}
+        accessibilityRole="button"
+        accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
+        accessibilityState={{ selected: isReminderActive }}
+        style={({ pressed }) => [
+          styles.actionButton,
+          styles.reminderActionButton,
+          styles.tabletReminderButton,
+          {
+            backgroundColor: theme.paperTheme.colors.secondaryContainer,
+            opacity: pressed ? 0.72 : 1
+          }
+        ]}
+      >
+        <View style={styles.tabletReminderButtonContent}>
+          <MaterialCommunityIcons
+            name={reminderButtonIcon}
+            size={24}
+            color={theme.paperTheme.colors.onSecondaryContainer || theme.accentStrong}
+            style={styles.tabletReminderButtonIcon}
+          />
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.tabletReminderButtonLabel,
+              { color: theme.paperTheme.colors.onSecondaryContainer || theme.accentStrong }
+            ]}
+          >
+            {reminderButtonLabel}
+          </Text>
+        </View>
+      </Pressable>
+    ) : (
       <Button
         mode={watchLayout && isReminderActive ? 'contained' : 'contained-tonal'}
-        icon={isReminderActive ? 'check' : (watchLayout ? 'checkbox-blank-outline' : 'bell-outline')}
+        icon={reminderButtonIcon}
         onPress={setDepartureReminder}
         compact={watchLayout || phoneActionButtonCompact}
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
         style={watchLayout
           ? [ styles.reminderButtonWatch, { width: watchReminderButtonWidth } ]
           : [ styles.actionButton, styles.reminderActionButton ]}
-        contentStyle={watchLayout ? styles.reminderButtonContentWatch : styles.actionButtonContent}
-        labelStyle={watchLayout ? styles.reminderButtonLabelWatch : styles.actionButtonLabel}
+        contentStyle={watchLayout
+          ? styles.reminderButtonContentWatch
+          : styles.actionButtonContent}
+        labelStyle={watchLayout
+          ? styles.reminderButtonLabelWatch
+          : styles.actionButtonLabel}
       >
-        {isReminderActive
-          ? (watchLayout ? Lang.t('reminderSetShortMessage') : Lang.t('cancelReminderBtnLabel'))
-          : (watchLayout ? Lang.t('remindMeShortBtnLabel') : Lang.t('remindMeBtnLabel'))}
+        {reminderButtonLabel}
       </Button>
     );
     const isReminderCancellationStatus = reminderStatus === Lang.t('reminderCanceledMessage');
@@ -1094,13 +1136,35 @@ const styles = StyleSheet.create({
   },
   actionButtonContent: {
     minHeight: 48,
-    paddingHorizontal: 8
+    paddingHorizontal: 8,
+    justifyContent: 'center'
   },
   actionButtonLabel: {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800',
-    marginHorizontal: 2
+    marginHorizontal: 6
+  },
+  tabletReminderButton: {
+    borderRadius: 28,
+    minHeight: 64,
+    justifyContent: 'center'
+  },
+  tabletReminderButtonContent: {
+    minHeight: 64,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10
+  },
+  tabletReminderButtonIcon: {
+    flexShrink: 0
+  },
+  tabletReminderButtonLabel: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '800'
   },
   actionsWatch: {
     flexDirection: 'column',
