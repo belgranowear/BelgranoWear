@@ -109,6 +109,7 @@ export default function NextSchedule({ navigation, route }) {
       ? Math.max(responsive.shortestSide, Math.min(screenDimensions.width, screenDimensions.height))
       : responsive.shortestSide;
     const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.78) : undefined;
+    const phoneActionButtonCompact = !watchLayout && responsive.isCompact;
     const watchScrollHintIsRounded = watchLayout && Math.abs(screenDimensions.width - screenDimensions.height) <= 32;
     const watchHeaderTextWidth = watchLayout
       ? Math.round(responsive.roundSafeWidth * (watchScrollHintIsRounded ? 0.66 : 0.84))
@@ -564,11 +565,13 @@ export default function NextSchedule({ navigation, route }) {
         mode={watchLayout && isReminderActive ? 'contained' : 'contained-tonal'}
         icon={isReminderActive ? 'check' : (watchLayout ? 'checkbox-blank-outline' : 'bell-outline')}
         onPress={setDepartureReminder}
-        compact={watchLayout}
+        compact={watchLayout || phoneActionButtonCompact}
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
-        style={watchLayout ? [ styles.reminderButtonWatch, { width: watchReminderButtonWidth } ] : styles.actionButton}
-        contentStyle={watchLayout ? styles.reminderButtonContentWatch : undefined}
-        labelStyle={watchLayout ? styles.reminderButtonLabelWatch : undefined}
+        style={watchLayout
+          ? [ styles.reminderButtonWatch, { width: watchReminderButtonWidth } ]
+          : [ styles.actionButton, styles.reminderActionButton ]}
+        contentStyle={watchLayout ? styles.reminderButtonContentWatch : styles.actionButtonContent}
+        labelStyle={watchLayout ? styles.reminderButtonLabelWatch : styles.actionButtonLabel}
       >
         {isReminderActive
           ? (watchLayout ? Lang.t('reminderSetShortMessage') : Lang.t('cancelReminderBtnLabel'))
@@ -785,7 +788,12 @@ export default function NextSchedule({ navigation, route }) {
             {showInScreenBack ? (
               <IconButton icon="arrow-left" onPress={() => navigation.goBack()} accessibilityLabel={Lang.t('goBackBtnLabel')} />
             ) : !watchLayout ? (
-              <View style={styles.headerActionSlot} />
+              <IconButton
+                icon="swap-horizontal"
+                onPress={reverseRoute}
+                accessibilityLabel={Lang.t('reverseRouteBtnLabel')}
+                style={styles.headerActionSlot}
+              />
             ) : null}
             <View style={[ styles.headerText, watchLayout ? [ styles.headerTextWatch, { width: watchHeaderTextWidth } ] : undefined ]}>
               <Text
@@ -854,10 +862,7 @@ export default function NextSchedule({ navigation, route }) {
           {watchRouteActions}
 
           <WatchScaleItem>
-            <View style={[ styles.actions, responsive.isCompact && !watchLayout ? styles.actionsPhoneCompact : undefined, watchLayout ? styles.actionsWatch : undefined ]}>
-              {!watchLayout ? (
-                <Button mode="outlined" icon="swap-horizontal" onPress={reverseRoute} compact={watchLayout} style={!watchLayout ? styles.actionButton : undefined}>{Lang.t('reverseRouteBtnLabel')}</Button>
-              ) : null}
+            <View style={[ styles.actions, watchLayout ? styles.actionsWatch : undefined ]}>
               {watchLayout ? (
                 <View style={styles.watchReminderButtonFrame}>
                   {watchReminderFeedback || watchReminderSwitch}
@@ -1038,19 +1043,29 @@ const styles = StyleSheet.create({
     opacity: 0.72
   },
   actions: {
+    width: '100%',
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
+    alignItems: 'stretch',
     gap: 8
   },
-  actionsPhoneCompact: {
-    flexDirection: 'column',
-    alignItems: 'center'
-  },
   actionButton: {
-    width: '100%',
-    maxWidth: 260,
-    alignSelf: 'center'
+    flexShrink: 1,
+    alignSelf: 'stretch'
+  },
+  reminderActionButton: {
+    width: '100%'
+  },
+  actionButtonContent: {
+    minHeight: 48,
+    paddingHorizontal: 8
+  },
+  actionButtonLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginHorizontal: 2
   },
   actionsWatch: {
     flexDirection: 'column',
