@@ -53,6 +53,8 @@ const CACHE_VERIFICATION_CONCURRENCY      = 3;
 const HOLIDAYS_CACHE_KEY_PATTERN          = /\/holidays_(\d{4})\.json$/;
 const LAST_KNOWN_LOCATION_MAX_AGE_MS      = 5 * 60 * 1000;
 const LAST_KNOWN_LOCATION_ACCURACY_METERS = 1000;
+// A cold GPS fix on a watch (no assisted location from the network) can take well over 10 s.
+const WATCH_GPS_FIX_TIMEOUT_MS = 30 * 1000;
 
 let cacheVerificationInProgress = false;
 
@@ -756,12 +758,12 @@ export default function DestinationPicker({ navigation }) {
         operationMessage: Lang.t('fetchingAvailabilityOptionsMessage')
     });
 
-    const tryGetCurrentPositionAsync = timeout => new Promise(async (resolve, reject) => {
+    const tryGetCurrentPositionAsync = (timeout, accuracy) => new Promise(async (resolve, reject) => {
         timeout = parseInt(timeout);
         const timeoutHandle = setTimeout(() => reject(new Error(`Couldn't get GPS location after ${timeout / 1000} seconds.`)), timeout);
 
         try {
-            const location = await Location.getCurrentPositionAsync();
+            const location = await Location.getCurrentPositionAsync(accuracy ? { accuracy } : undefined);
             clearTimeout(timeoutHandle);
             resolve(location);
         } catch (exception) {
@@ -857,7 +859,11 @@ export default function DestinationPicker({ navigation }) {
         let location;
 
         try {
-            location = await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
+            // Watches usually have no network location provider, and the default (balanced)
+            // request never powers the GPS on there, so ask for a GPS fix and give it time.
+            location = watchLayout
+                ? await tryGetCurrentPositionAsync(WATCH_GPS_FIX_TIMEOUT_MS, Location.Accuracy.High)
+                : await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
         } catch (exception) {
             try {
                 location = await tryGetLastKnownPositionAsync(process.env.GPS_FIX_TIMEOUT);
