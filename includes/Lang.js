@@ -289,7 +289,7 @@ Lang.translations   = {
         notificationPermissionDeniedShortMessage: 'Falta permiso',
         notificationChannelName: 'Recordatorios de salida'
     }
-}
+};
 
 // Per-area string partials (includes/lang/*.js) are merged on top of the base strings.
 [ langCore, langPicker, langSchedule, langWatch, langFullSchedule, langTrip, langWalk, langReminders, langLive, langSettings ]
