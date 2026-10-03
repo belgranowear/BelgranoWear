@@ -93,7 +93,8 @@ class BelgranoNextTrainTile : TileService() {
             val bounds = sortedSetOf<Long>()
             var previous = now
 
-            for (departure in snapshot.upcoming(now).take(4)) {
+            for (upcoming in snapshot.upcoming(now).take(4)) {
+                val departure = upcoming.departure
                 var instant = departure
                 if (instant > limit) {
                     instant -= ((instant - limit + MINUTE_MS - 1) / MINUTE_MS) * MINUTE_MS
