@@ -123,7 +123,49 @@ const createThemes = scheme => {
         spacing: { xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 },
         radius: { sm: 8, md: 14, lg: 22, xl: 28, pill: 999 },
         touchTarget: { minHeight: 48, watchMinHeight: 44 },
-        motion: { quick: 180, normal: 500 },
+        motion: {
+            quick:  180,
+            normal: 500,
+            // Expressive spring presets for Animated.spring (damping ratio ≈ bounce, stiffness ≈ speed).
+            spring: {
+                fastSpatial:    { damping: 18, stiffness: 1400, mass: 1 },
+                defaultSpatial: { damping: 20, stiffness: 700,  mass: 1 },
+                slowSpatial:    { damping: 22, stiffness: 300,  mass: 1 },
+                fastEffects:    { damping: 40, stiffness: 3800, mass: 1 },
+                defaultEffects: { damping: 40, stiffness: 1600, mass: 1 }
+            }
+        },
+        // Material 3 color roles not covered by the legacy aliases above. Values below are
+        // placeholders derived from the hand-written palette; the Expressive theme replaces them.
+        roles: {
+            primary:                 colors.primary,
+            onPrimary:               colors.onPrimary,
+            primaryContainer:        colors.primaryContainer,
+            onPrimaryContainer:      colors.onSurface,
+            secondaryContainer:      colors.primaryContainer,
+            onSecondaryContainer:    colors.onSurface,
+            tertiaryContainer:       colors.surfaceVariant,
+            onTertiaryContainer:     colors.onSurface,
+            surface:                 colors.surface,
+            surfaceContainerLowest:  colors.background,
+            surfaceContainerLow:     colors.surface,
+            surfaceContainer:        colors.surface,
+            surfaceContainerHigh:    colors.surfaceVariant,
+            surfaceContainerHighest: colors.surfaceVariant,
+            outline:                 colors.outline,
+            outlineVariant:          colors.surfaceVariant
+        },
+        // M3 Expressive shape scale (corner radius in dp).
+        shape: { none: 0, xs: 4, sm: 8, md: 12, lg: 16, lgIncreased: 20, xl: 28, xlIncreased: 32, xxl: 48, full: 999 },
+        // Emphasized typography overrides (spread onto a Paper Text style).
+        type: {
+            emphasized: {
+                display:  { fontWeight: '700', letterSpacing: -0.5 },
+                headline: { fontWeight: '700', letterSpacing: -0.25 },
+                title:    { fontWeight: '700' },
+                label:    { fontWeight: '700', letterSpacing: 0.2 }
+            }
+        },
         paperTheme
     };
 
