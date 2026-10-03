@@ -1,6 +1,17 @@
 import * as Localization  from 'expo-localization';
 import { I18n }           from 'i18n-js';
 
+import langCore         from './lang/core';
+import langPicker       from './lang/picker';
+import langSchedule     from './lang/schedule';
+import langWatch        from './lang/watch';
+import langFullSchedule from './lang/fullSchedule';
+import langTrip         from './lang/trip';
+import langWalk         from './lang/walk';
+import langReminders    from './lang/reminders';
+import langLive         from './lang/live';
+import langSettings     from './lang/settings';
+
 const Lang              = new I18n();
 const SUPPORTED_LOCALES = [ 'es', 'en' ];
 
@@ -279,6 +290,10 @@ Lang.translations   = {
         notificationChannelName: 'Recordatorios de salida'
     }
 }
+
+// Per-area string partials (includes/lang/*.js) are merged on top of the base strings.
+[ langCore, langPicker, langSchedule, langWatch, langFullSchedule, langTrip, langWalk, langReminders, langLive, langSettings ]
+    .forEach(partial => Lang.store(partial));
 
 console.log('locale:', Lang.locale);
 
