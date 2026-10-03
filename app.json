@@ -71,17 +71,11 @@
       "es": {
         "ios": {
           "NSLocationWhenInUseUsageDescription": "BelgranoWear usa tu ubicación para encontrar la estación más cercana y mostrarte los próximos trenes."
-        },
-        "android": {
-          "loading_assets": "Cargando recursos..."
         }
       },
       "en": {
         "ios": {
           "NSLocationWhenInUseUsageDescription": "BelgranoWear uses your location to find the nearest station and show you the upcoming trains."
-        },
-        "android": {
-          "loading_assets": "Loading assets..."
         }
       }
     }
