@@ -12,8 +12,6 @@ import {
     Button,
     HelperText,
     IconButton,
-    Modal,
-    Portal,
     SegmentedButtons,
     Text,
     TextInput
@@ -25,6 +23,7 @@ import Preferences from '../includes/Preferences';
 import { useTheme } from '../includes/Theme';
 import { isAnyUIPreview, previewState } from '../includes/UIPreview';
 
+import AnimatedSheet from './layout/AnimatedSheet';
 import { clamp, useResponsiveMetrics } from './ui';
 
 export const WEEKDAYS              = [ 1, 2, 3, 4, 5, 6, 7 ];
@@ -366,166 +365,164 @@ function SheetEditor({ visible, initialValue, onSave, onDismiss, onDelete }) {
     const selectedKey = editor.routeValid ? routeKey(value) : null;
 
     return (
-        <Portal>
-            <Modal
-                visible={visible}
-                onDismiss={onDismiss}
-                style={centered ? styles.sheetHostCentered : styles.sheetHost}
-                contentContainerStyle={[
-                    styles.sheet,
-                    {
-                        backgroundColor: theme.roles.surfaceContainerLow,
-                        borderTopLeftRadius:     theme.shape.xl,
-                        borderTopRightRadius:    theme.shape.xl,
-                        borderBottomLeftRadius:  centered ? theme.shape.xl : 0,
-                        borderBottomRightRadius: centered ? theme.shape.xl : 0,
-                        maxHeight:               responsive.height * (centered ? 0.86 : 0.92)
-                    }
-                ]}
-            >
-                {centered ? null : <View style={[ styles.handle, { backgroundColor: theme.roles.outline } ]} />}
+        <AnimatedSheet
+            visible={visible}
+            onDismiss={onDismiss}
+            centered={centered}
+            style={[
+                styles.sheet,
+                {
+                    backgroundColor: theme.roles.surfaceContainerLow,
+                    borderTopLeftRadius:     theme.shape.xl,
+                    borderTopRightRadius:    theme.shape.xl,
+                    borderBottomLeftRadius:  centered ? theme.shape.xl : 0,
+                    borderBottomRightRadius: centered ? theme.shape.xl : 0,
+                    maxHeight:               responsive.height * (centered ? 0.86 : 0.92)
+                }
+            ]}
+        >
+            {centered ? null : <View style={[ styles.handle, { backgroundColor: theme.roles.outline } ]} />}
 
-                <View style={styles.sheetHeader}>
-                    <Text variant="titleLarge" style={[ styles.sheetTitle, theme.type.emphasized.title ]}>
-                        {Lang.t(value.id ? 'editReminderTitle' : 'newReminderBtnLabel')}
-                    </Text>
-                    {value.id && onDelete ? (
-                        <IconButton
-                            icon="delete-outline"
-                            onPress={() => onDelete(value)}
-                            accessibilityLabel={Lang.t('reminderDeleteBtnLabel')}
-                        />
-                    ) : null}
+            <View style={styles.sheetHeader}>
+                <Text variant="titleLarge" style={[ styles.sheetTitle, theme.type.emphasized.title ]}>
+                    {Lang.t(value.id ? 'editReminderTitle' : 'newReminderBtnLabel')}
+                </Text>
+                {value.id && onDelete ? (
                     <IconButton
-                        icon="close"
-                        mode="contained-tonal"
-                        onPress={onDismiss}
-                        accessibilityLabel={Lang.t('reminderCloseBtnLabel')}
+                        icon="delete-outline"
+                        onPress={() => onDelete(value)}
+                        accessibilityLabel={Lang.t('reminderDeleteBtnLabel')}
+                    />
+                ) : null}
+                <IconButton
+                    icon="close"
+                    mode="contained-tonal"
+                    onPress={onDismiss}
+                    accessibilityLabel={Lang.t('reminderCloseBtnLabel')}
+                />
+            </View>
+
+            <ScrollView
+                style={styles.sheetScroll}
+                contentContainerStyle={styles.sheetContent}
+                keyboardShouldPersistTaps="handled"
+            >
+                <View style={styles.section}>
+                    <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderRouteLabel')}</Text>
+
+                    <View style={[ styles.routeSummary, { backgroundColor: theme.roles.secondaryContainer, borderRadius: theme.shape.lg } ]}>
+                        <Text variant="titleMedium" numberOfLines={2} style={[ styles.routeSummaryText, { color: theme.roles.onSecondaryContainer } ]}>
+                            {editor.routeValid ? formatRoute(value) : Lang.t('reminderRouteRequiredMessage')}
+                        </Text>
+                    </View>
+
+                    {editor.pickerPhase ? <StationChoices editor={editor} /> : (
+                        <>
+                            {editor.routes.length > 0 ? (
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeChips}>
+                                    {editor.routes.map(route => (
+                                        <ChoicePill
+                                            key={routeKey(route)}
+                                            label={formatRoute(route)}
+                                            selected={routeKey(route) === selectedKey}
+                                            onPress={() => editor.selectRoute(route)}
+                                            accessibilityRole="radio"
+                                        />
+                                    ))}
+                                </ScrollView>
+                            ) : null}
+
+                            {editor.stations.length > 0 ? (
+                                <Button mode="text" icon="map-marker-path" onPress={editor.startStationPicker} style={styles.leftButton}>
+                                    {Lang.t('reminderPickOtherRouteBtnLabel')}
+                                </Button>
+                            ) : null}
+
+                            {editor.routes.length === 0 && editor.stations.length === 0 ? (
+                                <Text variant="bodyMedium" style={{ color: theme.textMuted }}>{Lang.t('reminderNoRoutesHint')}</Text>
+                            ) : null}
+                        </>
+                    )}
+                </View>
+
+                <View style={styles.section}>
+                    <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderTimeLabel')}</Text>
+                    <View style={styles.timeRow}>
+                        <IconButton
+                            icon="minus"
+                            mode="contained-tonal"
+                            onPress={() => editor.setTime(shiftTime(value.time, -1))}
+                            onLongPress={() => editor.setTime(shiftTime(value.time, -10))}
+                            accessibilityLabel={Lang.t('reminderDecreaseMinuteLabel')}
+                        />
+                        <TextInput
+                            mode="outlined"
+                            value={editor.timeText}
+                            onChangeText={editor.onTimeTextChange}
+                            keyboardType="number-pad"
+                            maxLength={5}
+                            left={<TextInput.Icon icon="clock-outline" />}
+                            error={!editor.timeValid}
+                            accessibilityLabel={Lang.t('reminderTimeLabel')}
+                            style={styles.timeInput}
+                            contentStyle={styles.timeInputContent}
+                        />
+                        <IconButton
+                            icon="plus"
+                            mode="contained-tonal"
+                            onPress={() => editor.setTime(shiftTime(value.time, 1))}
+                            onLongPress={() => editor.setTime(shiftTime(value.time, 10))}
+                            accessibilityLabel={Lang.t('reminderIncreaseMinuteLabel')}
+                        />
+                    </View>
+                    <HelperText type={editor.timeValid ? 'info' : 'error'} visible>
+                        {Lang.t(editor.timeValid ? 'reminderTimeHelper' : 'reminderTimeInvalidMessage')}
+                    </HelperText>
+                </View>
+
+                <View style={styles.section}>
+                    <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderLeadLabel')}</Text>
+                    <SegmentedButtons
+                        value={String(value.leadMinutes)}
+                        onValueChange={editor.selectLead}
+                        buttons={LEAD_OPTIONS.map(lead => ({
+                            value: String(lead),
+                            label: Lang.t('reminderLeadOption').replace('%s', lead),
+                            icon:  'bell-outline'
+                        }))}
                     />
                 </View>
 
-                <ScrollView
-                    style={styles.sheetScroll}
-                    contentContainerStyle={styles.sheetContent}
-                    keyboardShouldPersistTaps="handled"
-                >
-                    <View style={styles.section}>
-                        <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderRouteLabel')}</Text>
-
-                        <View style={[ styles.routeSummary, { backgroundColor: theme.roles.secondaryContainer, borderRadius: theme.shape.lg } ]}>
-                            <Text variant="titleMedium" numberOfLines={2} style={[ styles.routeSummaryText, { color: theme.roles.onSecondaryContainer } ]}>
-                                {editor.routeValid ? formatRoute(value) : Lang.t('reminderRouteRequiredMessage')}
-                            </Text>
-                        </View>
-
-                        {editor.pickerPhase ? <StationChoices editor={editor} /> : (
-                            <>
-                                {editor.routes.length > 0 ? (
-                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeChips}>
-                                        {editor.routes.map(route => (
-                                            <ChoicePill
-                                                key={routeKey(route)}
-                                                label={formatRoute(route)}
-                                                selected={routeKey(route) === selectedKey}
-                                                onPress={() => editor.selectRoute(route)}
-                                                accessibilityRole="radio"
-                                            />
-                                        ))}
-                                    </ScrollView>
-                                ) : null}
-
-                                {editor.stations.length > 0 ? (
-                                    <Button mode="text" icon="map-marker-path" onPress={editor.startStationPicker} style={styles.leftButton}>
-                                        {Lang.t('reminderPickOtherRouteBtnLabel')}
-                                    </Button>
-                                ) : null}
-
-                                {editor.routes.length === 0 && editor.stations.length === 0 ? (
-                                    <Text variant="bodyMedium" style={{ color: theme.textMuted }}>{Lang.t('reminderNoRoutesHint')}</Text>
-                                ) : null}
-                            </>
-                        )}
-                    </View>
-
-                    <View style={styles.section}>
-                        <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderTimeLabel')}</Text>
-                        <View style={styles.timeRow}>
-                            <IconButton
-                                icon="minus"
-                                mode="contained-tonal"
-                                onPress={() => editor.setTime(shiftTime(value.time, -1))}
-                                onLongPress={() => editor.setTime(shiftTime(value.time, -10))}
-                                accessibilityLabel={Lang.t('reminderDecreaseMinuteLabel')}
+                <View style={styles.section}>
+                    <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderDaysLabel')}</Text>
+                    <View style={styles.weekdayRow}>
+                        {WEEKDAYS.map(weekday => (
+                            <WeekdayToggle
+                                key={weekday}
+                                weekday={weekday}
+                                size={daySize}
+                                selected={value.weekdays.indexOf(weekday) > -1}
+                                onPress={editor.toggleWeekday}
                             />
-                            <TextInput
-                                mode="outlined"
-                                value={editor.timeText}
-                                onChangeText={editor.onTimeTextChange}
-                                keyboardType="number-pad"
-                                maxLength={5}
-                                left={<TextInput.Icon icon="clock-outline" />}
-                                error={!editor.timeValid}
-                                accessibilityLabel={Lang.t('reminderTimeLabel')}
-                                style={styles.timeInput}
-                                contentStyle={styles.timeInputContent}
-                            />
-                            <IconButton
-                                icon="plus"
-                                mode="contained-tonal"
-                                onPress={() => editor.setTime(shiftTime(value.time, 1))}
-                                onLongPress={() => editor.setTime(shiftTime(value.time, 10))}
-                                accessibilityLabel={Lang.t('reminderIncreaseMinuteLabel')}
-                            />
-                        </View>
-                        <HelperText type={editor.timeValid ? 'info' : 'error'} visible>
-                            {Lang.t(editor.timeValid ? 'reminderTimeHelper' : 'reminderTimeInvalidMessage')}
-                        </HelperText>
+                        ))}
                     </View>
+                    {editor.daysValid ? null : (
+                        <HelperText type="error" visible>{Lang.t('reminderDaysRequiredMessage')}</HelperText>
+                    )}
+                </View>
+            </ScrollView>
 
-                    <View style={styles.section}>
-                        <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderLeadLabel')}</Text>
-                        <SegmentedButtons
-                            value={String(value.leadMinutes)}
-                            onValueChange={editor.selectLead}
-                            buttons={LEAD_OPTIONS.map(lead => ({
-                                value: String(lead),
-                                label: Lang.t('reminderLeadOption').replace('%s', lead),
-                                icon:  'bell-outline'
-                            }))}
-                        />
-                    </View>
-
-                    <View style={styles.section}>
-                        <Text variant="labelLarge" style={styles.sectionLabel}>{Lang.t('reminderDaysLabel')}</Text>
-                        <View style={styles.weekdayRow}>
-                            {WEEKDAYS.map(weekday => (
-                                <WeekdayToggle
-                                    key={weekday}
-                                    weekday={weekday}
-                                    size={daySize}
-                                    selected={value.weekdays.indexOf(weekday) > -1}
-                                    onPress={editor.toggleWeekday}
-                                />
-                            ))}
-                        </View>
-                        {editor.daysValid ? null : (
-                            <HelperText type="error" visible>{Lang.t('reminderDaysRequiredMessage')}</HelperText>
-                        )}
-                    </View>
-                </ScrollView>
-
-                <Button
-                    mode="contained"
-                    onPress={save}
-                    disabled={!editor.valid || editor.saving}
-                    loading={editor.saving}
-                    contentStyle={styles.saveButtonContent}
-                    style={styles.saveButton}
-                >
-                    {Lang.t('reminderSaveBtnLabel')}
-                </Button>
-            </Modal>
-        </Portal>
+            <Button
+                mode="contained"
+                onPress={save}
+                disabled={!editor.valid || editor.saving}
+                loading={editor.saving}
+                contentStyle={styles.saveButtonContent}
+                style={styles.saveButton}
+            >
+                {Lang.t('reminderSaveBtnLabel')}
+            </Button>
+        </AnimatedSheet>
     );
 }
 
@@ -758,22 +755,13 @@ function WatchEditor({ visible, initialValue, onSave, onDismiss, onDelete }) {
 export default function ReminderEditor(props) {
     const responsive = useResponsiveMetrics();
 
-    if (!props.visible) { return null; }
-
+    // Always mounted: both editors animate their own enter and exit from `visible`.
     return responsive.isWatch ? <WatchEditor {...props} /> : <SheetEditor {...props} />;
 }
 
 const styles = StyleSheet.create({
     centerText: {
         textAlign:      'center'
-    },
-    sheetHost: {
-        justifyContent: 'flex-end',
-        margin:         0
-    },
-    sheetHostCentered: {
-        justifyContent: 'center',
-        padding:        24
     },
     sheet: {
         width:          '100%',

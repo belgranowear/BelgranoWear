@@ -414,7 +414,7 @@ export default function RemindersScreen({ navigation }) {
                             title={Lang.t('weeklyRemindersEmptyTitle')}
                             message={Lang.t('weeklyRemindersEmptyMessage')}
                             action={(
-                                <Button mode="contained-tonal" icon="bell-plus-outline" onPress={openNewReminder}>
+                                <Button mode="contained" icon="bell-plus-outline" onPress={openNewReminder}>
                                     {Lang.t('newReminderBtnLabel')}
                                 </Button>
                             )}
@@ -436,7 +436,9 @@ export default function RemindersScreen({ navigation }) {
                 </View>
             </AppScreen>
 
+            {/* The empty state carries its own CTA; the FAB only appears once there is a list. */}
             <FAB
+                visible={loaded && reminders.length > 0}
                 icon="plus"
                 label={Lang.t('newReminderBtnLabel')}
                 onPress={openNewReminder}
