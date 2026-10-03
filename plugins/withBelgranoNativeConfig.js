@@ -1,14 +1,22 @@
 const fs = require('fs');
 const path = require('path');
 const {
+  AndroidConfig,
+  withAndroidColors,
+  withAndroidColorsNight,
   withAndroidManifest,
+  withAndroidStyles,
   withAppBuildGradle,
   withDangerousMod,
+  withEntitlementsPlist,
   withGradleProperties,
   withInfoPlist,
   withMainActivity,
   withSettingsGradle,
+  withStringsXml,
 } = require('expo/config-plugins');
+const withBelgranoDeviceModule = require('./withBelgranoDeviceModule');
+const withBelgranoNetworkSecurity = require('./withBelgranoNetworkSecurity');
 
 const RELEASE_SIGNING_LOADER = `/**
  * Custom properties loader based off this SO answer:
@@ -51,26 +59,41 @@ tasks.configureEach { task ->
 }
 `;
 
+// Colors used by the launch screen (react-native-splash-screen) and the splash window background.
+// colorPrimary comes from `primaryColor` in app.json; Expo owns iconBackground and colorPrimaryDark.
 const SPLASH_COLORS = {
-  day: `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-  <color name="splashscreen_background">#fff8f6</color>
-  <color name="splashscreen_text">#251815</color>
-  <color name="splashscreen_progress">#be4936</color>
-  <color name="iconBackground">#000000</color>
-  <color name="colorPrimary">#be4936</color>
-  <color name="colorPrimaryDark">#be4936</color>
-  <color name="ic_launcher_background">#000000</color>
-</resources>
-`,
-  night: `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-  <color name="splashscreen_background">#080403</color>
-  <color name="splashscreen_text">#fff7f4</color>
-  <color name="splashscreen_progress">#ffb4a8</color>
-</resources>
-`,
+  day: {
+    splashscreen_background: '#fff8f6',
+    splashscreen_text:       '#251815',
+    splashscreen_progress:   '#be4936',
+  },
+  night: {
+    splashscreen_background: '#080403',
+    splashscreen_text:       '#fff7f4',
+    splashscreen_progress:   '#ffb4a8',
+  },
 };
+
+// Resource qualifiers Expo's colors mods don't manage (watches always use the dark splash).
+const EXTRA_SPLASH_COLOR_DIRS = {
+  'values-v31':         SPLASH_COLORS.day,
+  'values-night-v31':   SPLASH_COLORS.night,
+  'values-watch':       SPLASH_COLORS.night,
+  'values-watch-v31':   SPLASH_COLORS.night,
+};
+
+const LOADING_ASSETS_TEXT = 'Loading assets...';
+
+const renderColorsXml = colors => `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+${Object.entries(colors).map(([name, value]) => `  <color name="${name}">${value}</color>`).join('\n')}
+</resources>
+`;
+
+const assignColors = (colorsXml, colors) => Object.entries(colors).reduce(
+  (xml, [name, value]) => AndroidConfig.Colors.assignColorValue(xml, { name, value }),
+  colorsXml
+);
 
 const LAUNCH_SCREEN_XML = `<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
@@ -132,46 +155,54 @@ function writeFile(filePath, contents) {
   fs.writeFileSync(filePath, contents);
 }
 
-function patchStylesXml(filePath) {
-  if (!fs.existsSync(filePath)) {
-    return;
-  }
+// Colors, styles and strings go through Expo's resource mods (not withDangerousMod) so Expo's own
+// splash/status bar/primary color steps can't overwrite them afterwards.
+const withBelgranoAndroidColors = config => {
+  config = withAndroidColors(config, config => {
+    config.modResults = assignColors(config.modResults, SPLASH_COLORS.day);
+    return config;
+  });
 
-  let contents = fs.readFileSync(filePath, 'utf8');
-  contents = contents.replace(
-    /<style name="AppTheme" parent="Theme\.AppCompat\.DayNight\.NoActionBar">[\s\S]*?<\/style>/,
-    `<style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-    <item name="android:textColor">@android:color/black</item>
-    <item name="android:editTextStyle">@style/ResetEditText</item>
-    <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
-    <item name="colorPrimary">@color/colorPrimary</item>
-    <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-    <item name="android:windowBackground">@drawable/splashscreen</item>
-    <item name="android:windowSwipeToDismiss">false</item>
-  </style>`
+  return withAndroidColorsNight(config, config => {
+    config.modResults = assignColors(config.modResults, SPLASH_COLORS.night);
+    return config;
+  });
+};
+
+const withBelgranoAndroidStyles = config => withAndroidStyles(config, config => {
+  const { Styles } = AndroidConfig;
+  const appTheme = Styles.getAppThemeGroup();
+  const resetEditText = { name: 'ResetEditText', parent: '@android:style/Widget.EditText' };
+  let styles = config.modResults;
+
+  // Text colors follow the DayNight theme; a forced black made dialogs unreadable in dark mode.
+  styles = Styles.assignStylesValue(styles, { add: false, parent: appTheme, name: 'android:textColor' });
+  styles = Styles.assignStylesValue(styles, { add: true, parent: appTheme, name: 'android:editTextStyle', value: '@style/ResetEditText' });
+  styles = Styles.assignStylesValue(styles, { add: true, parent: appTheme, name: 'colorPrimaryDark', value: '@color/colorPrimaryDark' });
+  // WearOS: keep the system swipe-to-dismiss gesture from closing the app.
+  styles = Styles.assignStylesValue(styles, { add: true, parent: appTheme, name: 'android:windowSwipeToDismiss', value: 'false' });
+
+  styles = Styles.assignStylesValue(styles, { add: true, parent: resetEditText, name: 'android:padding', value: '0dp' });
+  styles = Styles.assignStylesValue(styles, { add: true, parent: resetEditText, name: 'android:textColorHint', value: '#c8c8c8' });
+
+  config.modResults = styles;
+  return config;
+});
+
+const withBelgranoAndroidStrings = config => withStringsXml(config, config => {
+  config.modResults = AndroidConfig.Strings.setStringItem(
+    [AndroidConfig.Resources.buildResourceItem({ name: 'loading_assets', value: LOADING_ASSETS_TEXT })],
+    config.modResults
   );
+  return config;
+});
 
-  if (!contents.includes('<style name="ResetEditText"')) {
-    contents = contents.replace(
-      /(<style name="Theme\.App\.SplashScreen")/,
-      `<style name="ResetEditText" parent="@android:style/Widget.EditText">
-    <item name="android:padding">0dp</item>
-    <item name="android:textColorHint">#c8c8c8</item>
-    <item name="android:textColor">@android:color/black</item>
-  </style>
-  $1`
-    );
-  }
-
-  contents = contents.replace(
-    /<style name="Theme\.App\.SplashScreen" parent="AppTheme">[\s\S]*?<\/style>/,
-    `<style name="Theme.App.SplashScreen" parent="AppTheme">
-    <item name="android:windowBackground">@drawable/splashscreen</item>
-  </style>`
-  );
-
-  fs.writeFileSync(filePath, contents);
-}
+// Only local notifications are used, so drop the push entitlement expo-notifications adds.
+// This plugin must be listed BEFORE expo-notifications in app.json: mods registered earlier run later.
+const withoutPushEntitlement = config => withEntitlementsPlist(config, config => {
+  delete config.modResults['aps-environment'];
+  return config;
+});
 
 
 const withBelgranoInfoPlist = config => withInfoPlist(config, config => {
@@ -196,7 +227,6 @@ const withBelgranoAndroidManifest = config => withAndroidManifest(config, config
   };
 
   ensurePermission('android.permission.POST_NOTIFICATIONS');
-  ensurePermission('com.google.android.gms.permission.AD_ID');
 
   return config;
 });
@@ -298,24 +328,11 @@ const withBelgranoAndroidResources = config => withDangerousMod(config, ['androi
   const androidRoot = config.modRequest.platformProjectRoot;
   const mainRes = path.join(androidRoot, 'app', 'src', 'main', 'res');
 
-  writeFile(path.join(mainRes, 'values', 'colors.xml'), SPLASH_COLORS.day);
-  writeFile(path.join(mainRes, 'values-night', 'colors.xml'), SPLASH_COLORS.night);
-  writeFile(path.join(mainRes, 'values-v31', 'colors.xml'), SPLASH_COLORS.day);
-  writeFile(path.join(mainRes, 'values-night-v31', 'colors.xml'), SPLASH_COLORS.night);
-  writeFile(path.join(mainRes, 'values-watch', 'colors.xml'), SPLASH_COLORS.night);
-  writeFile(path.join(mainRes, 'values-watch-v31', 'colors.xml'), SPLASH_COLORS.night);
+  for (const [dir, colors] of Object.entries(EXTRA_SPLASH_COLOR_DIRS)) {
+    writeFile(path.join(mainRes, dir, 'colors.xml'), renderColorsXml(colors));
+  }
   writeFile(path.join(mainRes, 'layout', 'launch_screen.xml'), LAUNCH_SCREEN_XML);
 
-  const stringsPath = path.join(mainRes, 'values', 'strings.xml');
-  if (fs.existsSync(stringsPath)) {
-    let strings = fs.readFileSync(stringsPath, 'utf8');
-    if (!strings.includes('name="loading_assets"')) {
-      strings = strings.replace('</resources>', '  <string name="loading_assets">Loading assets...</string>\n</resources>');
-      fs.writeFileSync(stringsPath, strings);
-    }
-  }
-
-  patchStylesXml(path.join(mainRes, 'values', 'styles.xml'));
   return config;
 }]);
 
@@ -326,7 +343,13 @@ module.exports = function withBelgranoNativeConfig(config) {
   config = withBelgranoAppBuildGradle(config);
   config = withBelgranoMainActivity(config);
   config = withBelgranoAndroidResources(config);
+  config = withBelgranoAndroidColors(config);
+  config = withBelgranoAndroidStyles(config);
+  config = withBelgranoAndroidStrings(config);
+  config = withBelgranoNetworkSecurity(config);
+  config = withBelgranoDeviceModule(config);
   config = withBelgranoInfoPlist(config);
+  config = withoutPushEntitlement(config);
 
   return config;
 };
