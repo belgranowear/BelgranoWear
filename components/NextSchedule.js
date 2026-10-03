@@ -1,5 +1,3 @@
-import normalizeSpecialCharacters from 'specialtonormal';
-
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -16,8 +14,6 @@ import {
 
 import { useFocusEffect } from '@react-navigation/native';
 
-import IDomParser from 'advanced-html-parser';
-
 import dayjs    from 'dayjs';
 import duration     from 'dayjs/plugin/duration';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -33,11 +29,22 @@ import {
   Text
 } from 'react-native-paper';
 
-import Cache       from '../includes/Cache';
 import Lang        from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import Reminders   from '../includes/Reminders';
-import { fetchWithTimeout } from '../includes/Network';
+import {
+  DEFAULT_SEGMENTS_LIST,
+  SOURCE,
+  atArgentinaWallTime,
+  buildDepartureTimes,
+  fetchLiveRows,
+  fetchLiveStationsList,
+  fetchScheduleOptions as fetchRouteScheduleOptions,
+  findLiveStationIndex,
+  findTargetSegmentId,
+  isSameArgentinaDay,
+  pickLiveDeparture
+} from '../includes/Schedule';
 import { ARGENTINA_UTC_OFFSET_MINUTES, nowInArgentina } from '../includes/Time';
 import { getUIPreviewMode, isWatchUIPreview } from '../includes/UIPreview';
 import { isRoundScreen } from '../includes/Device';
@@ -46,164 +53,11 @@ import OfflineModeHint from './OfflineModeHint';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 import { useTheme } from '../includes/Theme';
 
-const SOURCE = {
-  LIVE:      'live',
-  SCHEDULED: 'scheduled',
-  OFFLINE:   'offline'
-};
-
 const SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT = 3;
 
 const NEXT_DEPARTURES_COUNT         = 3;
 const DEPARTURE_LOOKAHEAD_DAYS      = 7;
-const LIVE_ETA_EARLIEST_OFFSET_MIN  = -5;
-const LIVE_ETA_LATEST_OFFSET_MIN    = 30;
 const DEPARTURE_VIBRATION_PATTERN   = [ 0, 400, 150, 400 ];
-const DEFAULT_SEGMENTS_LIST         = { 1: 'Lunes a viernes', 2: 'Sábado', 3: 'Domingo' };
-
-// Argentina wall clock of an instant, read through UTC getters so device DST rules never leak in.
-const toArgentinaWallClock = instant => new Date(instant.valueOf() + ARGENTINA_UTC_OFFSET_MINUTES * 60 * 1000);
-
-// Builds an absolute instant from an Argentina wall-clock time, independent of the device time zone.
-const atArgentinaWallTime = (reference, dayOffset = 0, hour = 0, minute = 0) => {
-  const wallClock = toArgentinaWallClock(reference);
-
-  return dayjs.utc(
-    Date.UTC(wallClock.getUTCFullYear(), wallClock.getUTCMonth(), wallClock.getUTCDate() + dayOffset, hour, minute) - ARGENTINA_UTC_OFFSET_MINUTES * 60 * 1000
-  ).utcOffset(ARGENTINA_UTC_OFFSET_MINUTES);
-};
-
-const isSameArgentinaDay = (first, second) => (
-  toArgentinaWallClock(first).toISOString().slice(0, 10) === toArgentinaWallClock(second).toISOString().slice(0, 10)
-);
-
-const isHolidayDate = (date, holidaysList) => (holidaysList || []).some(holiday => (
-  holiday.dia == date.date() && holiday.mes == date.month() + 1
-));
-
-const findTargetSegmentId = (date, segmentsList, holidaysList) => {
-  const segmentIds   = Object.keys(segmentsList || {});
-  const segmentNames = segmentIds.map(id => normalizeSpecialCharacters(String(segmentsList[id]).toLowerCase()));
-  const dayOfWeek    = date.day();
-
-  if (isHolidayDate(date, holidaysList)) {
-    const holidayIndex = segmentNames.findIndex(name => name.indexOf('feriado') > -1);
-    if (holidayIndex > -1) { return segmentIds[holidayIndex]; }
-  }
-
-  for (let index = 0; index < segmentIds.length; index++) {
-    const segmentName = segmentNames[index];
-    const isWeekend   = [ 'sabado', 'domingo', 'feriado' ].some(word => segmentName.indexOf(word) > -1);
-
-    if (dayOfWeek == 0 && segmentName.indexOf('domingo') > -1) { return segmentIds[index]; }
-    if (dayOfWeek == 6 && segmentName.indexOf('sabado') > -1) { return segmentIds[index]; }
-    if (dayOfWeek > 0 && dayOfWeek < 6 && !isWeekend) { return segmentIds[index]; }
-  }
-
-  return null;
-};
-
-// Departures of `options` (["HH:mm", …] rows) on the day `dayOffset` days after `now`, strictly after `now`.
-const buildDepartureTimes = (now, dayOffset, options) => {
-  const departures = [];
-
-  (Array.isArray(options) ? options : []).forEach(option => {
-    const [ tripStartTime ] = Array.isArray(option) ? option : [ option ];
-    const [ hour, minute ]  = String(tripStartTime || '').split(':').map(value => parseInt(value, 10));
-
-    if (Number.isNaN(hour) || Number.isNaN(minute)) { return; }
-
-    const departure = atArgentinaWallTime(now, dayOffset, hour, minute);
-    if (departure.valueOf() > now.valueOf()) { departures.push(departure); }
-  });
-
-  return departures.sort((first, second) => first.valueOf() - second.valueOf());
-};
-
-const normalizeLiveStationName = name => normalizeSpecialCharacters(String(name || '').toLowerCase()).replace(/\s+/g, ' ').trim();
-
-// Live stations are listed in line order (Retiro → Villa Rosa); returns -1 when the name can't be mapped.
-const findLiveStationIndex = (liveStationsList, name) => {
-  const normalizedName = normalizeLiveStationName(name);
-  const liveNames      = liveStationsList.map(station => normalizeLiveStationName(station.name));
-  let   stationIndex   = liveNames.indexOf(normalizedName);
-
-  if (stationIndex > -1 || normalizedName.length === 0) { return stationIndex; }
-
-  liveNames.forEach((liveName, index) => {
-    const liveNameWord = liveName.replace(/.* /, '');
-    if (normalizedName === liveNameWord || normalizedName.indexOf(' ' + liveNameWord) > -1) { stationIndex = index; }
-  });
-
-  return stationIndex;
-};
-
-const findLiveDirectionTable = (body, liveStationsList, originIndex, destinationIndex) => {
-  const isGoingUp = destinationIndex > originIndex;
-  const tables    = [];
-
-  for (let index = 0; index < body.children.length; index++) {
-    const child = body.children[index];
-
-    if (child.nodeType !== 1 || !child.tagName || child.tagName.toLowerCase() != 'table') { continue; }
-    if ((child.outerHTML || '').trim().length > 0) { tables.push(child); }
-  }
-
-  const titledTable = tables.find(table => {
-    const title      = table.querySelector('.table_title');
-    const titleIndex = title ? findLiveStationIndex(liveStationsList, title.innerText()) : -1;
-
-    return titleIndex > -1 && titleIndex !== originIndex && (titleIndex > originIndex) === isGoingUp;
-  });
-
-  if (titledTable) { return titledTable; }
-
-  return isGoingUp ? tables[0] : tables[tables.length - 1];
-};
-
-const parseLiveDepartureRows = table => {
-  const rows       = [];
-  let terminalName = null;
-
-  Array.from(table.querySelectorAll('.tdEst') || []).forEach(cell => {
-    const classNames = String(cell.getAttribute('class') || '').split(/\s+/);
-    const text       = cell.innerText().trim();
-
-    if (classNames.indexOf('tdflecha') === -1) {
-      terminalName = text;
-      return;
-    }
-
-    const minutes = parseInt(text.replace(/[^0-9]/g, ''), 10);
-    if (!Number.isNaN(minutes)) { rows.push({ terminalName, minutes }); }
-    terminalName = null;
-  });
-
-  return rows;
-};
-
-// First live train that reaches the destination and plausibly matches the scheduled departure.
-const pickLiveDeparture = ({ rows, liveStationsList, originIndex, destinationIndex, scheduledDeparture, followingDeparture, now }) => {
-  const isGoingUp = destinationIndex > originIndex;
-
-  for (let index = 0; index < rows.length; index++) {
-    const terminalIndex = findLiveStationIndex(liveStationsList, rows[index].terminalName);
-
-    if (terminalIndex < 0) { continue; }
-    if (isGoingUp ? terminalIndex < destinationIndex : terminalIndex > destinationIndex) { continue; }
-
-    const departure     = now.add(rows[index].minutes, 'minute');
-    const offsetMinutes = (departure.valueOf() - scheduledDeparture.valueOf()) / 60000;
-
-    if (offsetMinutes < LIVE_ETA_EARLIEST_OFFSET_MIN || offsetMinutes > LIVE_ETA_LATEST_OFFSET_MIN) { continue; }
-    if (followingDeparture && departure.valueOf() >= followingDeparture.valueOf()) { continue; }
-
-    return departure;
-  }
-
-  return null;
-};
-
 
 const sourceLabel = source => ({
   [SOURCE.LIVE]:      Lang.t('sourceLiveEstimate'),
@@ -366,22 +220,6 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       setIsReminderActive(Boolean(reminder));
     };
 
-    const fetchHFRemainingTimeByStationId = async (liveStationsList, originIndex, destinationIndex) => {
-      let url  = process.env.HIGH_ACCURACY_ETA_URL + '/estaciones.asp',
-          body = new URLSearchParams({ idEst: liveStationsList[originIndex].id }).toString();
-
-      const response = await fetchWithTimeout(url, {
-        method:   'POST',
-        body:     body,
-        headers:  { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
-
-      const dom   = IDomParser.parse(await response.text()),
-            table = findLiveDirectionTable(dom.querySelector('body'), liveStationsList, originIndex, destinationIndex);
-
-      return table ? parseLiveDepartureRows(table) : [];
-    };
-
     const getEffectiveDepartures = () => {
       const departures   = upcomingDeparturesRef.current;
       const liveEstimate = liveEstimateRef.current;
@@ -409,32 +247,14 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       try {
         if (!isLiveEstimateApplicable(scheduledDeparture)) { return; }
 
-        const html = await (await fetchWithTimeout(process.env.HIGH_ACCURACY_ETA_URL)).text();
-        const dom  = IDomParser.parse(html);
-
-        let mainTables       = dom.querySelectorAll('#table_main'),
-            liveStationsList = [],
-            currentRowIndex  = 0;
-
-        let mainTable        = mainTables[ mainTables.length - 1 ],
-            expectedTdCount  = mainTable.querySelector('tr').querySelectorAll('td').length;
-
-        while (currentRowIndex < expectedTdCount) {
-          mainTable.querySelectorAll('tr').forEach(tr => {
-            let td = tr.querySelectorAll('td')[currentRowIndex];
-            if (!td) { return; }
-            let id = String(td.getAttribute('onclick') || '').replace(new RegExp('[^0-9]', 'g'), '').trim();
-            if (id.length > 0) { liveStationsList.push({ id: parseInt(id), name: td.innerText() }); }
-          });
-          currentRowIndex++;
-        }
+        const liveStationsList = await fetchLiveStationsList();
 
         const originIndex      = findLiveStationIndex(liveStationsList, originName);
         const destinationIndex = findLiveStationIndex(liveStationsList, destinationName);
 
         if (originIndex < 0 || destinationIndex < 0 || originIndex === destinationIndex) { return; }
 
-        const rows = await fetchHFRemainingTimeByStationId(liveStationsList, originIndex, destinationIndex);
+        const rows = await fetchLiveRows(liveStationsList, originIndex, destinationIndex);
 
         // Discard results for a departure that is no longer the next one (advanced, retried or unmounted).
         if (upcomingDeparturesRef.current[0] !== scheduledDeparture) { return; }
@@ -515,22 +335,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       else { setShouldLoopAnimation(false); }
     };
 
-    const fetchScheduleOptions = async segment => {
-      let compiledURL = process.env.REMOTE_BASE_URL + `/schedule_${segment}.${route.params.origin.id}.${route.params.destination.id}_data.json`;
-
-      try {
-        const json = await (await fetchWithTimeout(compiledURL)).json();
-        Cache.set(compiledURL, json);
-        return { options: json, source: SOURCE.SCHEDULED };
-      } catch (exception) {
-        let cachedData = await Cache.get(compiledURL);
-
-        if (cachedData) { return { options: cachedData, source: SOURCE.OFFLINE }; }
-
-        console.error('fetchNextTripTime: couldn\'t query:', exception);
-        return null;
-      }
-    };
+    const fetchScheduleOptions = segment => fetchRouteScheduleOptions(segment, route.params.origin.id, route.params.destination.id);
 
     const fetchNextTripTime = async (originName, destinationName) => {
       const requestId = ++scheduleRequestRef.current;
