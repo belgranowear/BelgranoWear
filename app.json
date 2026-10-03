@@ -39,6 +39,7 @@
     },
     "plugins": [
       "./plugins/withBelgranoNativeConfig",
+      "./plugins/withBelgranoRotary",
       "expo-localization",
       [
         "expo-location",

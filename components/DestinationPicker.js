@@ -1294,7 +1294,7 @@ export default function DestinationPicker({ navigation }) {
 
         // Master and detail scroll independently (each pane is a bounded flex:1/minHeight:0 column).
         return withOptionalSwipeExit(
-            <AppScreen scroll={false} contentWidth="wide" contentStyle={styles.tabletShell}>
+            <AppScreen scroll={false} contentWidth="split" contentStyle={styles.tabletShell}>
                 <View style={[ styles.tabletMasterPane, { width: responsive.tabletMasterWidth } ]}>
                     <View style={styles.screenHeader}>
                         <View style={styles.headerTitleBlock}>
