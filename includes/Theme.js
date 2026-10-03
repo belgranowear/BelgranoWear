@@ -31,7 +31,7 @@ const palette = {
         inversePrimary:           '#ffb4a6',
         secondary:                '#775651',
         onSecondary:              '#ffffff',
-        secondaryContainer:       '#ffdad4',
+        secondaryContainer:       '#f1dfdb',
         onSecondaryContainer:     '#5d3f3a',
         tertiary:                 '#356132',
         onTertiary:               '#ffffff',

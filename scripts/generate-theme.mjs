@@ -62,6 +62,7 @@ const palettes = {
     secondary: TonalPalette.fromHueAndChroma(seedHct.hue, 16),
     tertiary:  TonalPalette.fromHueAndChroma(145, 36),
     warning:   TonalPalette.fromHueAndChroma(Hct.fromInt(argbFromHex('#9a5b00')).hue, 48),
+    selection: TonalPalette.fromHueAndChroma(seedHct.hue, 6),
     offline:   TonalPalette.fromHueAndChroma(260, 8)
 };
 
@@ -116,7 +117,10 @@ const buildScheme = isDark => {
     // Fidelity derives secondary/tertiary containers from the primary container tone (≈47),
     // which yields mid-tone fills with barely-AA text. Use the classic MD3 container tones
     // (90/30 light, 30/90 dark) so selection and the "En vivo" chip read as soft tonal fills.
-    roles.secondaryContainer   = pick(palettes.secondary, 90, 30);
+    // At tone 90 the primary palette is gamut-capped to chroma ≈ 13, so a chroma-16 secondary
+    // lands on the exact same #ffdad4 in light mode. Light selection uses a chroma-6 warm
+    // neutral instead (ΔE76 ≈ 7 vs primaryContainer); dark already differs strongly.
+    roles.secondaryContainer   = isDark ? pick(palettes.secondary, 90, 30) : hex(palettes.selection.tone(90));
     roles.onSecondaryContainer = pick(palettes.secondary, 30, 90);
     roles.tertiaryContainer    = pick(palettes.tertiary, 90, 30);
     roles.onTertiaryContainer  = pick(palettes.tertiary, 30, 90);
