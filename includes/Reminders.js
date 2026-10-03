@@ -82,7 +82,20 @@ const tooSoonResult     = () => buildResult(false, 'too-soon', 'reminderUnavaila
 const unsupportedResult = () => buildResult(false, 'unsupported', 'reminderPlatformUnsupportedMessage', 'reminderPlatformUnsupportedShortMessage');
 const failedResult      = () => buildResult(false, 'failed', 'reminderSchedulingFailedMessage', 'reminderSchedulingFailedShortMessage');
 
-const isTooSoon = departureAt => departureAt - REMINDER_LEAD_MS <= Date.now() + MIN_SCHEDULE_DELAY_MS;
+// Absolute time (ms) a one-off reminder fires: an explicit fireAt wins, else departure minus leadMinutes (default 5).
+const resolveFireAt = (departureAt, { fireAt, leadMinutes } = {}) => {
+    const explicit = fireAt != null ? Number(fireAt.valueOf()) : NaN;
+
+    if (Number.isFinite(explicit)) { return Math.min(explicit, departureAt); }
+
+    const leadMs = Number.isFinite(Number(leadMinutes)) && Number(leadMinutes) >= 0
+        ? Number(leadMinutes) * 60 * 1000
+        : REMINDER_LEAD_MS;
+
+    return departureAt - leadMs;
+};
+
+const isTooSoon = fireAtMs => fireAtMs <= Date.now() + MIN_SCHEDULE_DELAY_MS;
 
 // Resolves to 'granted', 'denied' (can ask again) or 'blocked' (only fixable from the system settings).
 const ensureNotificationPermissions = async (notifications, requestPermissions) => {
@@ -418,10 +431,12 @@ const Reminders = {
         return { id: reminder.id, departureAt: Number.isFinite(departureAt) ? departureAt : null };
     }),
 
-    scheduleDepartureReminder: ({ origin, destination, departureTime, requestPermissions = true }) => withReminderLock(async () => {
+    // Optional `fireAt` (Date/moment/ms) or `leadMinutes` override the default "5 min before departure" alert time.
+    scheduleDepartureReminder: ({ origin, destination, departureTime, requestPermissions = true, fireAt, leadMinutes }) => withReminderLock(async () => {
         const departureAt = departureTime.valueOf();
+        const fireAtMs    = resolveFireAt(departureAt, { fireAt, leadMinutes });
 
-        if (isTooSoon(departureAt)) { return tooSoonResult(); }
+        if (isTooSoon(fireAtMs)) { return tooSoonResult(); }
 
         try {
             const notifications = await loadNotifications();
@@ -441,7 +456,7 @@ const Reminders = {
             }
 
             // Checked again after the permission prompts, since time spent in them must not shift the reminder.
-            if (isTooSoon(departureAt)) { return tooSoonResult(); }
+            if (isTooSoon(fireAtMs)) { return tooSoonResult(); }
 
             const existing = await Preferences.getReminder(origin, destination);
 
@@ -459,7 +474,7 @@ const Reminders = {
                 },
                 trigger: {
                     type: notifications.SchedulableTriggerInputTypes.DATE,
-                    date: departureAt - REMINDER_LEAD_MS,
+                    date: fireAtMs,
                     channelId: CHANNEL_ID
                 }
             });
