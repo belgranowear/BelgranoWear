@@ -296,7 +296,7 @@ export default function TripDetail({ route }) {
                 fetchedAt={detail.fetchedAt}
                 liveDepartureText={liveDepartureText}
                 phaseLabel={phaseLabel}
-                stacked={isShortLandscape || (twoColumns && responsive.width < 1100)}
+                stacked={isShortLandscape || responsive.width < 560 || (twoColumns && responsive.width < 1100)}
                 style={styles.block}
             />
             {canFollow && phase !== 'finished' ? (
