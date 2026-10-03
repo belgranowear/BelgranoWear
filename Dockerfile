@@ -50,6 +50,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends file &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/*
 
+# Install Python 3 (native project edits in entrypoint.sh) and GnuPG (release
+# keystore decryption) explicitly instead of relying on transitive packages.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 gnupg &&\
+    apt-get clean &&\
+    rm -rf /var/lib/apt/lists/*
+
 # Keep Docker layer cache traceable to package/build metadata without baking
 # application source or assets into the toolchain image.
 COPY package.json package-lock.json docker-compose.yml /tmp/build-metadata/

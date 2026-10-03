@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+node_modules.root-owned-*/
 yarn.lock
 
 # Expo
@@ -12,6 +13,7 @@ web-build/
 # Native
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key

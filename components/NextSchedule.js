@@ -1,6 +1,6 @@
 import normalizeSpecialCharacters from 'specialtonormal';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ActivityIndicator as RNActivityIndicator,
@@ -13,6 +13,8 @@ import {
   Vibration,
   View
 } from 'react-native';
+
+import { useFocusEffect } from '@react-navigation/native';
 
 import IDomParser from 'advanced-html-parser';
 
@@ -35,7 +37,10 @@ import Cache       from '../includes/Cache';
 import Lang        from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import Reminders   from '../includes/Reminders';
+import { fetchWithTimeout } from '../includes/Network';
+import { ARGENTINA_UTC_OFFSET_MINUTES, nowInArgentina } from '../includes/Time';
 import { getUIPreviewMode, isWatchUIPreview } from '../includes/UIPreview';
+import { isRoundScreen } from '../includes/Device';
 
 import OfflineModeHint from './OfflineModeHint';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
@@ -48,6 +53,156 @@ const SOURCE = {
 };
 
 const SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT = 3;
+
+const NEXT_DEPARTURES_COUNT         = 3;
+const DEPARTURE_LOOKAHEAD_DAYS      = 7;
+const LIVE_ETA_EARLIEST_OFFSET_MIN  = -5;
+const LIVE_ETA_LATEST_OFFSET_MIN    = 30;
+const DEPARTURE_VIBRATION_PATTERN   = [ 0, 400, 150, 400 ];
+const DEFAULT_SEGMENTS_LIST         = { 1: 'Lunes a viernes', 2: 'Sábado', 3: 'Domingo' };
+
+// Argentina wall clock of an instant, read through UTC getters so device DST rules never leak in.
+const toArgentinaWallClock = instant => new Date(instant.valueOf() + ARGENTINA_UTC_OFFSET_MINUTES * 60 * 1000);
+
+// Builds an absolute instant from an Argentina wall-clock time, independent of the device time zone.
+const atArgentinaWallTime = (reference, dayOffset = 0, hour = 0, minute = 0) => {
+  const wallClock = toArgentinaWallClock(reference);
+
+  return dayjs.utc(
+    Date.UTC(wallClock.getUTCFullYear(), wallClock.getUTCMonth(), wallClock.getUTCDate() + dayOffset, hour, minute) - ARGENTINA_UTC_OFFSET_MINUTES * 60 * 1000
+  ).utcOffset(ARGENTINA_UTC_OFFSET_MINUTES);
+};
+
+const isSameArgentinaDay = (first, second) => (
+  toArgentinaWallClock(first).toISOString().slice(0, 10) === toArgentinaWallClock(second).toISOString().slice(0, 10)
+);
+
+const isHolidayDate = (date, holidaysList) => (holidaysList || []).some(holiday => (
+  holiday.dia == date.date() && holiday.mes == date.month() + 1
+));
+
+const findTargetSegmentId = (date, segmentsList, holidaysList) => {
+  const segmentIds   = Object.keys(segmentsList || {});
+  const segmentNames = segmentIds.map(id => normalizeSpecialCharacters(String(segmentsList[id]).toLowerCase()));
+  const dayOfWeek    = date.day();
+
+  if (isHolidayDate(date, holidaysList)) {
+    const holidayIndex = segmentNames.findIndex(name => name.indexOf('feriado') > -1);
+    if (holidayIndex > -1) { return segmentIds[holidayIndex]; }
+  }
+
+  for (let index = 0; index < segmentIds.length; index++) {
+    const segmentName = segmentNames[index];
+    const isWeekend   = [ 'sabado', 'domingo', 'feriado' ].some(word => segmentName.indexOf(word) > -1);
+
+    if (dayOfWeek == 0 && segmentName.indexOf('domingo') > -1) { return segmentIds[index]; }
+    if (dayOfWeek == 6 && segmentName.indexOf('sabado') > -1) { return segmentIds[index]; }
+    if (dayOfWeek > 0 && dayOfWeek < 6 && !isWeekend) { return segmentIds[index]; }
+  }
+
+  return null;
+};
+
+// Departures of `options` (["HH:mm", …] rows) on the day `dayOffset` days after `now`, strictly after `now`.
+const buildDepartureTimes = (now, dayOffset, options) => {
+  const departures = [];
+
+  (Array.isArray(options) ? options : []).forEach(option => {
+    const [ tripStartTime ] = Array.isArray(option) ? option : [ option ];
+    const [ hour, minute ]  = String(tripStartTime || '').split(':').map(value => parseInt(value, 10));
+
+    if (Number.isNaN(hour) || Number.isNaN(minute)) { return; }
+
+    const departure = atArgentinaWallTime(now, dayOffset, hour, minute);
+    if (departure.valueOf() > now.valueOf()) { departures.push(departure); }
+  });
+
+  return departures.sort((first, second) => first.valueOf() - second.valueOf());
+};
+
+const normalizeLiveStationName = name => normalizeSpecialCharacters(String(name || '').toLowerCase()).replace(/\s+/g, ' ').trim();
+
+// Live stations are listed in line order (Retiro → Villa Rosa); returns -1 when the name can't be mapped.
+const findLiveStationIndex = (liveStationsList, name) => {
+  const normalizedName = normalizeLiveStationName(name);
+  const liveNames      = liveStationsList.map(station => normalizeLiveStationName(station.name));
+  let   stationIndex   = liveNames.indexOf(normalizedName);
+
+  if (stationIndex > -1 || normalizedName.length === 0) { return stationIndex; }
+
+  liveNames.forEach((liveName, index) => {
+    const liveNameWord = liveName.replace(/.* /, '');
+    if (normalizedName === liveNameWord || normalizedName.indexOf(' ' + liveNameWord) > -1) { stationIndex = index; }
+  });
+
+  return stationIndex;
+};
+
+const findLiveDirectionTable = (body, liveStationsList, originIndex, destinationIndex) => {
+  const isGoingUp = destinationIndex > originIndex;
+  const tables    = [];
+
+  for (let index = 0; index < body.children.length; index++) {
+    const child = body.children[index];
+
+    if (child.nodeType !== 1 || !child.tagName || child.tagName.toLowerCase() != 'table') { continue; }
+    if ((child.outerHTML || '').trim().length > 0) { tables.push(child); }
+  }
+
+  const titledTable = tables.find(table => {
+    const title      = table.querySelector('.table_title');
+    const titleIndex = title ? findLiveStationIndex(liveStationsList, title.innerText()) : -1;
+
+    return titleIndex > -1 && titleIndex !== originIndex && (titleIndex > originIndex) === isGoingUp;
+  });
+
+  if (titledTable) { return titledTable; }
+
+  return isGoingUp ? tables[0] : tables[tables.length - 1];
+};
+
+const parseLiveDepartureRows = table => {
+  const rows       = [];
+  let terminalName = null;
+
+  Array.from(table.querySelectorAll('.tdEst') || []).forEach(cell => {
+    const classNames = String(cell.getAttribute('class') || '').split(/\s+/);
+    const text       = cell.innerText().trim();
+
+    if (classNames.indexOf('tdflecha') === -1) {
+      terminalName = text;
+      return;
+    }
+
+    const minutes = parseInt(text.replace(/[^0-9]/g, ''), 10);
+    if (!Number.isNaN(minutes)) { rows.push({ terminalName, minutes }); }
+    terminalName = null;
+  });
+
+  return rows;
+};
+
+// First live train that reaches the destination and plausibly matches the scheduled departure.
+const pickLiveDeparture = ({ rows, liveStationsList, originIndex, destinationIndex, scheduledDeparture, followingDeparture, now }) => {
+  const isGoingUp = destinationIndex > originIndex;
+
+  for (let index = 0; index < rows.length; index++) {
+    const terminalIndex = findLiveStationIndex(liveStationsList, rows[index].terminalName);
+
+    if (terminalIndex < 0) { continue; }
+    if (isGoingUp ? terminalIndex < destinationIndex : terminalIndex > destinationIndex) { continue; }
+
+    const departure     = now.add(rows[index].minutes, 'minute');
+    const offsetMinutes = (departure.valueOf() - scheduledDeparture.valueOf()) / 60000;
+
+    if (offsetMinutes < LIVE_ETA_EARLIEST_OFFSET_MIN || offsetMinutes > LIVE_ETA_LATEST_OFFSET_MIN) { continue; }
+    if (followingDeparture && departure.valueOf() >= followingDeparture.valueOf()) { continue; }
+
+    return departure;
+  }
+
+  return null;
+};
 
 
 const sourceLabel = source => ({
@@ -74,8 +229,16 @@ const getWatchRemainingTimeFontSize = (message, shortestSide) => {
 
 const formatDepartureDelta = departure => {
   const remaining = dayjs.duration(departure.diff());
+  const days      = Math.max(0, Math.floor(remaining.asDays()));
   const hours     = Math.max(0, remaining.get('hour'));
   const minutes   = Math.max(0, remaining.get('minute'));
+
+  if (days > 0) {
+    return [
+      formatDurationUnit(days, 'day', 'days'),
+      ...(hours > 0 ? [ formatDurationUnit(hours, 'hour', 'hours') ] : [])
+    ].join(` ${Lang.t('and')} `);
+  }
 
   if (hours > 0) {
     if (minutes > 0) {
@@ -91,15 +254,11 @@ const formatDepartureDelta = departure => {
   return formatDurationUnit(Math.max(1, minutes), 'minute', 'minutes');
 };
 
-const compactReminderStatus = message => {
-  if (message === Lang.t('reminderUnavailableMessage')) { return Lang.t('reminderUnavailableShortMessage'); }
-  if (message === Lang.t('notificationPermissionDeniedMessage')) { return Lang.t('notificationPermissionDeniedShortMessage'); }
-  if (message === Lang.t('reminderSetMessage')) { return Lang.t('reminderSetShortMessage'); }
+const compactReminderStatus = status => status.shortMessage || status.message;
 
-  return message;
-};
+const REMINDER_RESCHEDULE_THRESHOLD_MS = 60 * 1000;
 
-export function NextSchedulePane({ navigation, origin, destination, segmentsList, holidaysList, onReplaceRoute, forcePreviewData = false }) {
+export function NextSchedulePane({ navigation, origin, destination, segmentsList, holidaysList, onReplaceRoute, onFavoriteChange, favoritesVersion, forcePreviewData = false }) {
     return (
       <NextScheduleContent
         navigation={navigation}
@@ -107,6 +266,8 @@ export function NextSchedulePane({ navigation, origin, destination, segmentsList
         embedded
         forcePreviewData={forcePreviewData}
         onReplaceRoute={onReplaceRoute}
+        onFavoriteChange={onFavoriteChange}
+        favoritesVersion={favoritesVersion}
       />
     );
 }
@@ -115,7 +276,7 @@ export default function NextSchedule({ navigation, route }) {
     return <NextScheduleContent navigation={navigation} route={route} />;
 }
 
-function NextScheduleContent({ navigation, route, embedded = false, forcePreviewData = false, onReplaceRoute }) {
+function NextScheduleContent({ navigation, route, embedded = false, forcePreviewData = false, onReplaceRoute, onFavoriteChange, favoritesVersion }) {
     const { theme }  = useTheme();
     const responsive = useResponsiveMetrics();
     const previewMode = getUIPreviewMode();
@@ -128,7 +289,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.78) : undefined;
     const phoneActionButtonCompact = !watchLayout && responsive.isCompact;
     const tabletActionButton = !watchLayout && (embedded || responsive.isTablet);
-    const watchScrollHintIsRounded = watchLayout && Math.abs(screenDimensions.width - screenDimensions.height) <= 32;
+    const watchScrollHintIsRounded = isRoundScreen({ width: screenDimensions.width, height: screenDimensions.height, watch: watchLayout });
     const watchHeaderTextWidth = watchLayout
       ? Math.round(responsive.roundSafeWidth * (watchScrollHintIsRounded ? 0.66 : 0.84))
       : undefined;
@@ -139,7 +300,6 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const [ remainingTimeMessage,    setRemainingTimeMessage    ] = useState();
     const [ nextTripTime,            setNextTripTime            ] = useState();
     const [ nextDepartures,          setNextDepartures          ] = useState([]);
-    const [ shouldTryNextDay,        setShouldTryNextDay        ] = useState();
     const [ networkErrorDetected,    setNetworkErrorDetected    ] = useState();
     const [ currentOperation,        setCurrentOperation        ] = useState(Lang.t('fetchingNextTripTimeMessage') + '…');
     const [ isNextTripFadedIn,       setIsNextTripFadedIn       ] = useState(false);
@@ -149,6 +309,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const [ routeStatus,             setRouteStatus             ] = useState();
     const [ reminderStatus,          setReminderStatus          ] = useState();
     const [ isReminderActive,        setIsReminderActive        ] = useState(false);
+    const [ isReminderBusy,          setIsReminderBusy          ] = useState(false);
     const [ isWatchScrollHintDismissed, setIsWatchScrollHintDismissed ] = useState(false);
     const [ watchScrollHintFullScrollCount, setWatchScrollHintFullScrollCount ] = useState(null);
 
@@ -156,9 +317,18 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const scrollHintProgress = useRef(new Animated.Value(0)).current;
     const watchFullScrollRecordLockedRef = useRef(false);
     const fallbackReminderRef = useRef();
+    const reminderBusyRef = useRef(false);
+    const reminderDepartureRef = useRef();
+    const reminderRouteKeyRef = useRef();
+    const upcomingDeparturesRef = useRef([]);
+    const liveEstimateRef = useRef(null);
+    const baseScheduleSourceRef = useRef(SOURCE.SCHEDULED);
+    const scheduleRequestRef = useRef(0);
 
     const origin      = route.params.origin;
     const destination = route.params.destination;
+
+    reminderRouteKeyRef.current = `${origin.id}:${destination.id}`;
 
     const animateNextTripTimeOpacity = ({ toValue, onFinished = () => {} }) => {
       Animated.timing(nextTripViewOpacity, {
@@ -185,101 +355,127 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     };
 
     const refreshReminderState = async () => {
-      setIsReminderActive(Boolean(await Preferences.getReminderNotificationId(origin, destination)));
+      const routeKey = reminderRouteKeyRef.current;
+      clearForegroundFallbackReminder();
+      reminderDepartureRef.current = undefined;
+      setIsReminderActive(false);
+      setReminderStatus(undefined);
+      const reminder = await Reminders.getActiveReminder({ origin, destination });
+      if (routeKey !== reminderRouteKeyRef.current || reminderBusyRef.current) { return; }
+      reminderDepartureRef.current = reminder ? reminder.departureAt : undefined;
+      setIsReminderActive(Boolean(reminder));
     };
 
-    const fetchHFRemainingTimeByStationId = async (originId, isGoingToTerminal) => {
+    const fetchHFRemainingTimeByStationId = async (liveStationsList, originIndex, destinationIndex) => {
       let url  = process.env.HIGH_ACCURACY_ETA_URL + '/estaciones.asp',
-          body = new URLSearchParams({ idEst: originId }).toString();
+          body = new URLSearchParams({ idEst: liveStationsList[originIndex].id }).toString();
 
-      await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method:   'POST',
         body:     body,
         headers:  { 'Content-Type': 'application/x-www-form-urlencoded' }
-      }).then(      response => response.text())
-        .then(async html     => {
-          const dom   = IDomParser.parse(html),
-                body  = dom.querySelector('body');
+      });
 
-          let tableIndex = -1,
-              table      = null;
+      const dom   = IDomParser.parse(await response.text()),
+            table = findLiveDirectionTable(dom.querySelector('body'), liveStationsList, originIndex, destinationIndex);
 
-          for (let index = 0; index < body.children.length; index++) {
-            let child = body.children[index];
-
-            if (!child.tagName) { continue; }
-
-            if (child.tagName.toLowerCase() == 'table' && child.outerHTML.trim().length > 0) {
-              table = child;
-              tableIndex++;
-            }
-
-            if (table && !isGoingToTerminal) { break; }
-          }
-
-          if (table) {
-            let remainingMinutes = table.querySelector('.tdflecha').innerText().replaceAll(new RegExp('[^0-9]', 'g'), '');
-
-            if (remainingMinutes.trim().length > 0) {
-              remainingMinutes = parseInt(remainingMinutes);
-              const newNextTripTime = dayjs().add(remainingMinutes, 'minutes');
-              setNextTripTime( newNextTripTime );
-              setScheduleSource(SOURCE.LIVE);
-            }
-          }
-        });
+      return table ? parseLiveDepartureRows(table) : [];
     };
 
-    const fetchHighAccuracyRemainingTime = (originName, destinationName) => {
-      originName      = originName.toLowerCase();
-      destinationName = destinationName.toLowerCase();
+    const getEffectiveDepartures = () => {
+      const departures   = upcomingDeparturesRef.current;
+      const liveEstimate = liveEstimateRef.current;
 
-      fetch(process.env.HIGH_ACCURACY_ETA_URL)
-        .then(response => response.text())
-        .then(async html => {
-          const dom = IDomParser.parse(html);
+      if (liveEstimate && departures.length > 0 && liveEstimate.scheduledAt === departures[0].valueOf()) {
+        return [ liveEstimate.departure, ...departures.slice(1) ];
+      }
 
-          let mainTables       = dom.querySelectorAll('#table_main'),
-              liveStationsList = [],
-              originIndex      = null,
-              destinationIndex = null,
-              currentRowIndex  = 0;
+      return departures;
+    };
 
-          let mainTable        = mainTables[ mainTables.length - 1 ],
-              expectedTdCount  = mainTable.querySelector('tr').querySelectorAll('td').length;
+    const showDepartures = (departures, source) => {
+      setScheduleSource(source);
+      setNextTripTime(departures[0]);
+      setNextDepartures(departures.slice(0, NEXT_DEPARTURES_COUNT));
+      setRemainingTimeMessage(buildRemainingTimeMessage(departures[0]));
+    };
 
-          while (currentRowIndex < expectedTdCount) {
-            mainTable.querySelectorAll('tr').forEach(tr => {
-              let td = tr.querySelectorAll('td')[currentRowIndex];
-              let id = td.getAttribute('onclick').replace(new RegExp('[^0-9]', 'g'), '').trim();
-              if (id.length > 0) { liveStationsList.push({ id: parseInt(id), name: td.innerText() }); }
-            });
-            currentRowIndex++;
-          }
+    const isLiveEstimateApplicable = departure => Boolean(departure) && !previewMode && isSameArgentinaDay(departure, nowInArgentina());
 
-          liveStationsList.forEach((station, index) => {
-            let liveNameWord = normalizeSpecialCharacters(station.name.replaceAll(new RegExp('.* ', 'g'), '').toLowerCase());
+    const fetchHighAccuracyRemainingTime = async (originName, destinationName) => {
+      const scheduledDeparture = upcomingDeparturesRef.current[0];
+      const followingDeparture = upcomingDeparturesRef.current[1];
 
-            if (normalizeSpecialCharacters(destinationName).indexOf(' ' + liveNameWord) > -1 || destinationName === liveNameWord) { destinationIndex = index; }
-            if (normalizeSpecialCharacters(originName).indexOf(' ' + liveNameWord) > -1 || originName === liveNameWord) { originIndex = index; }
+      try {
+        if (!isLiveEstimateApplicable(scheduledDeparture)) { return; }
+
+        const html = await (await fetchWithTimeout(process.env.HIGH_ACCURACY_ETA_URL)).text();
+        const dom  = IDomParser.parse(html);
+
+        let mainTables       = dom.querySelectorAll('#table_main'),
+            liveStationsList = [],
+            currentRowIndex  = 0;
+
+        let mainTable        = mainTables[ mainTables.length - 1 ],
+            expectedTdCount  = mainTable.querySelector('tr').querySelectorAll('td').length;
+
+        while (currentRowIndex < expectedTdCount) {
+          mainTable.querySelectorAll('tr').forEach(tr => {
+            let td = tr.querySelectorAll('td')[currentRowIndex];
+            if (!td) { return; }
+            let id = String(td.getAttribute('onclick') || '').replace(new RegExp('[^0-9]', 'g'), '').trim();
+            if (id.length > 0) { liveStationsList.push({ id: parseInt(id), name: td.innerText() }); }
           });
+          currentRowIndex++;
+        }
 
-          if (originIndex === null || destinationIndex === null) { return; }
+        const originIndex      = findLiveStationIndex(liveStationsList, originName);
+        const destinationIndex = findLiveStationIndex(liveStationsList, destinationName);
 
-          await fetchHFRemainingTimeByStationId(liveStationsList[originIndex].id, destinationIndex < originIndex);
-        })
-        .catch(exception => { console.warn('Couldn\'t fetch live tracking data:', exception); })
-        .finally(() => { setShouldLoopAnimation(false); });
+        if (originIndex < 0 || destinationIndex < 0 || originIndex === destinationIndex) { return; }
+
+        const rows = await fetchHFRemainingTimeByStationId(liveStationsList, originIndex, destinationIndex);
+
+        // Discard results for a departure that is no longer the next one (advanced, retried or unmounted).
+        if (upcomingDeparturesRef.current[0] !== scheduledDeparture) { return; }
+
+        const liveDeparture = pickLiveDeparture({
+          rows,
+          liveStationsList,
+          originIndex,
+          destinationIndex,
+          scheduledDeparture,
+          followingDeparture,
+          now: nowInArgentina()
+        });
+
+        if (!liveDeparture) { return; }
+
+        liveEstimateRef.current = { scheduledAt: scheduledDeparture.valueOf(), departure: liveDeparture };
+        showDepartures(getEffectiveDepartures(), SOURCE.LIVE);
+      } catch (exception) {
+        console.warn('Couldn\'t fetch live tracking data:', exception);
+      } finally {
+        setShouldLoopAnimation(false);
+      }
     };
 
     const buildRemainingTimeMessage = (departure = nextTripTime) => {
       if (!departure) { return Lang.t('hurryUpMessage'); }
 
       let remainingTime = dayjs.duration( departure.diff() );
-      let hours   = remainingTime.get('hour'),
+      let days    = Math.max(0, Math.floor(remainingTime.asDays())),
+          hours   = remainingTime.get('hour'),
           minutes = remainingTime.get('minute'),
           seconds = remainingTime.get('second'),
           remainingTimeMessage = '';
+
+      if (days > 0) {
+        remainingTimeMessage = `${days} ${days == 1 ? Lang.t('day') : Lang.t('days')}`;
+        if (hours > 0) { remainingTimeMessage += ` ${Lang.t('and')} ${hours} ${hours == 1 ? Lang.t('hour') : Lang.t('hours')}`; }
+
+        return `(${Lang.t('nextTripRemainingTimeMessage').replace('%s', remainingTimeMessage)})`;
+      }
 
       if (hours > 0) { remainingTimeMessage += `${hours} ${hours == 1 ? Lang.t('hour') : Lang.t('hours')}`; }
 
@@ -300,110 +496,149 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       return `(${Lang.t('nextTripRemainingTimeMessage').replace('%s', remainingTimeMessage)})`;
     };
 
-    const isHoliday = dayjsInstance => {
-      let holidaysList = route.params.holidaysList || [];
-      let currentDay = dayjsInstance.date(), currentMonth = dayjsInstance.month() + 1;
-      for (let index = 0; index < holidaysList.length; index++) {
-          let holiday = holidaysList[index];
-          if (holiday.dia == currentDay && holiday.mes == currentMonth) { return true; }
-      }
-      return false;
-    };
+    const getTargetSegment = (dayjsInstance = nowInArgentina()) => findTargetSegmentId(
+      dayjsInstance,
+      route.params.segmentsList || DEFAULT_SEGMENTS_LIST,
+      route.params.holidaysList
+    );
 
-    const getTargetSegment = (dayjsInstance = dayjs()) => {
-      let segmentsList = route.params.segmentsList || { 1: 'Lunes a viernes', 2: 'Sábado', 3: 'Domingo' };
-      let lookForHolidaySegment = isHoliday(dayjsInstance);
-      let segmentIds = Object.keys(segmentsList);
-      let targetSegment = null;
-      let dayOfWeek = dayjsInstance.day();
-
-      for (let index = 0; index < segmentIds.length; index++) {
-        let segmentName = normalizeSpecialCharacters(segmentsList[ segmentIds[index] ].toLowerCase());
-        if (lookForHolidaySegment && segmentName.indexOf('feriado') > -1) { targetSegment = segmentIds[index]; break; }
-        if (dayOfWeek == 0 && segmentName.indexOf('domingo') > -1) { targetSegment = segmentIds[index]; break; }
-        if (dayOfWeek == 6 && segmentName.indexOf('sabado') > -1) { targetSegment = segmentIds[index]; break; }
-        if (lookForHolidaySegment) { continue; }
-        if (dayOfWeek > 0 && dayOfWeek < 6) { targetSegment = segmentIds[index]; break; }
-      }
-
-      if (!targetSegment) { crash( Lang.t('getTargetSegmentError') ); }
-      return targetSegment;
-    };
-
-    const processScheduleOptions = (date, options, originName, destinationName, source = SOURCE.SCHEDULED) => {
+    const processScheduleOptions = (departures, originName, destinationName, source = SOURCE.SCHEDULED) => {
       setCurrentOperation( Lang.t('processingScheduleMessage') + '…' );
-      setScheduleSource(source);
 
-      let differenceMilliseconds;
-      const nextOptions = [];
+      upcomingDeparturesRef.current = departures;
+      liveEstimateRef.current       = null;
+      baseScheduleSourceRef.current = source;
 
-      for (let index = 0; index < options.length; index++) {
-        let [ tripStartTime ] = options[index],
-            [ tripStartHour, tripStartMinutes ] = tripStartTime.split(':');
+      showDepartures(departures, source);
 
-        let comparedDate = date.hour(tripStartHour).minute(tripStartMinutes);
-        differenceMilliseconds = comparedDate.diff(date);
+      if (isLiveEstimateApplicable(departures[0])) { fetchHighAccuracyRemainingTime(originName, destinationName); }
+      else { setShouldLoopAnimation(false); }
+    };
 
-        if (differenceMilliseconds >= 0) {
-          nextOptions.push(comparedDate);
-          if (nextOptions.length === 1) {
-            setNextTripTime(comparedDate);
-            setRemainingTimeMessage(buildRemainingTimeMessage(comparedDate));
-          }
-          if (nextOptions.length >= 3) { break; }
+    const fetchScheduleOptions = async segment => {
+      let compiledURL = process.env.REMOTE_BASE_URL + `/schedule_${segment}.${route.params.origin.id}.${route.params.destination.id}_data.json`;
+
+      try {
+        const json = await (await fetchWithTimeout(compiledURL)).json();
+        Cache.set(compiledURL, json);
+        return { options: json, source: SOURCE.SCHEDULED };
+      } catch (exception) {
+        let cachedData = await Cache.get(compiledURL);
+
+        if (cachedData) { return { options: cachedData, source: SOURCE.OFFLINE }; }
+
+        console.error('fetchNextTripTime: couldn\'t query:', exception);
+        return null;
+      }
+    };
+
+    const fetchNextTripTime = async (originName, destinationName) => {
+      const requestId = ++scheduleRequestRef.current;
+      const now       = nowInArgentina();
+      const optionsBySegment = {};
+      let hasTargetSegment   = false;
+
+      setCurrentOperation( Lang.t('fetchingNextTripTimeMessage') + '…' );
+
+      // Today first, then the following days until a departure is found.
+      for (let dayOffset = 0; dayOffset <= DEPARTURE_LOOKAHEAD_DAYS; dayOffset++) {
+        let segment = getTargetSegment(atArgentinaWallTime(now, dayOffset, 12, 0));
+        if (!segment) { continue; }
+
+        hasTargetSegment = true;
+
+        if (!(segment in optionsBySegment)) { optionsBySegment[segment] = await fetchScheduleOptions(segment); }
+        if (requestId !== scheduleRequestRef.current) { return; }
+
+        const result = optionsBySegment[segment];
+
+        if (!result) {
+          crash( Lang.t('fetchNextTripTimeError') );
+          return;
+        }
+
+        const departures = buildDepartureTimes(now, dayOffset, result.options);
+
+        if (departures.length > 0) {
+          if (result.source === SOURCE.OFFLINE) { setNetworkErrorDetected(true); }
+          processScheduleOptions(departures, originName, destinationName, result.source);
+          return;
         }
       }
 
-      setNextDepartures(nextOptions);
-
-      if (nextOptions.length > 0 && !previewMode) { fetchHighAccuracyRemainingTime(originName, destinationName); }
-      else { setShouldLoopAnimation(false); }
-
-      if (differenceMilliseconds <= 0 || nextOptions.length === 0) { setShouldTryNextDay(true); }
+      setShouldLoopAnimation(false);
+      crash( Lang.t(hasTargetSegment ? 'noTripsFoundMessage' : 'getTargetSegmentError') );
     };
 
-    const fetchNextTripTime = async (originName, destinationName, date = dayjs()) => {
-      setCurrentOperation( Lang.t('fetchingNextTripTimeMessage') + '…' );
+    // Drops departed trains and moves on to the next one, looking up the schedule again when none are left.
+    const advanceDepartures = ({ notifyDeparture = false, refreshLiveEstimate = false } = {}) => {
+      const now                 = nowInArgentina();
+      const effectiveDepartures = getEffectiveDepartures();
+      const pendingIndexes      = effectiveDepartures
+        .map((departure, index) => departure.valueOf() > now.valueOf() ? index : -1)
+        .filter(index => index > -1);
+      const hasDeparted         = pendingIndexes.length < effectiveDepartures.length;
 
-      let segment = getTargetSegment(date);
-      if (!segment) { return; }
+      if (hasDeparted && notifyDeparture && AppState.currentState === 'active' && (navigation?.isFocused?.() ?? true)) {
+        Vibration.vibrate(DEPARTURE_VIBRATION_PATTERN);
+      }
 
-      let compiledURL = process.env.REMOTE_BASE_URL + `/schedule_${segment}.${route.params.origin.id}.${route.params.destination.id}_data.json`;
+      if (effectiveDepartures.length > 0 && pendingIndexes.length === 0) {
+        upcomingDeparturesRef.current = [];
+        liveEstimateRef.current       = null;
+        setNextTripTime(undefined);
+        setRemainingTimeMessage(undefined);
+        setNextDepartures([]);
+        fetchNextTripTime(origin.title, destination.title);
+        return;
+      }
 
-      await fetch(compiledURL)
-        .then(response => response.json())
-        .then(json => {
-          Cache.set(compiledURL, json);
-          processScheduleOptions(date, json, originName, destinationName, SOURCE.SCHEDULED);
-        })
-        .catch(async exception => {
-          let cachedData = await Cache.get(compiledURL);
+      if (pendingIndexes.length === 0) { return; }
 
-          if (cachedData) {
-            setNetworkErrorDetected(true);
-            processScheduleOptions(date, cachedData, originName, destinationName, SOURCE.OFFLINE);
-          } else {
-            console.error('fetchNextTripTime: couldn\t query:', exception);
-            crash( Lang.t('fetchNextTripTimeError') );
-          }
-        });
+      if (hasDeparted) {
+        upcomingDeparturesRef.current = pendingIndexes.map(index => upcomingDeparturesRef.current[index]);
+        if (pendingIndexes[0] !== 0) { liveEstimateRef.current = null; }
+      }
+
+      const departures = getEffectiveDepartures();
+      const source     = liveEstimateRef.current && departures[0] === liveEstimateRef.current.departure ? SOURCE.LIVE : baseScheduleSourceRef.current;
+
+      showDepartures(departures, source);
+      setRemainingTimeMillis(departures[0].diff());
+
+      if ((hasDeparted || refreshLiveEstimate) && isLiveEstimateApplicable(upcomingDeparturesRef.current[0])) {
+        fetchHighAccuracyRemainingTime(origin.title, destination.title);
+      }
     };
 
     const retry = () => {
+      upcomingDeparturesRef.current = [];
+      liveEstimateRef.current       = null;
       setCrashMessage(undefined);
       setRemainingTimeMessage(undefined);
       setNextTripTime(undefined);
       setNextDepartures([]);
       setShouldLoopAnimation(true);
-      setShouldTryNextDay(false);
       fetchNextTripTime(origin.title, destination.title);
       fadeInNextTripTime();
     };
 
     const toggleFavorite = async () => {
-      const nowFavorite = await Preferences.toggleFavoriteTrip(origin, destination);
-      setIsFavorite(nowFavorite);
-      setRouteStatus(nowFavorite ? Lang.t('routeSavedMessage') : Lang.t('routeRemovedMessage'));
+      const shouldBeFavorite = !isFavorite;
+
+      setIsFavorite(shouldBeFavorite);
+
+      try {
+        await Preferences.setFavoriteTrip(origin, destination, shouldBeFavorite);
+        setRouteStatus(shouldBeFavorite ? Lang.t('routeSavedMessage') : Lang.t('routeRemovedMessage'));
+      } catch (exception) {
+        console.warn('toggleFavorite: couldn\'t update favorite trip:', exception);
+        setRouteStatus(Lang.t('favoriteUpdateFailedMessage'));
+      }
+
+      await refreshFavoriteState();
+
+      if (onFavoriteChange) { onFavoriteChange(); }
     };
 
     const reverseRoute = () => {
@@ -424,44 +659,140 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       });
     };
 
-    const setForegroundFallbackReminder = () => {
-      const reminderDate = nextTripTime.subtract(5, 'minute');
+    // Web / Expo Go fallback: it only works while this screen stays mounted, and the UI says so.
+    const setForegroundFallbackReminder = (departure = nextTripTime) => {
+      const reminderDate = departure.subtract(5, 'minute');
       const delayMs = reminderDate.diff();
       if (delayMs <= 0) { return false; }
       if (fallbackReminderRef.current) { clearTimeout(fallbackReminderRef.current); }
       fallbackReminderRef.current = setTimeout(() => {
+        fallbackReminderRef.current = undefined;
         Vibration.vibrate([ 250, 125, 250 ]);
       }, delayMs);
       return true;
     };
 
-    const cancelDepartureReminder = async () => {
+    const clearForegroundFallbackReminder = () => {
       if (fallbackReminderRef.current) {
         clearTimeout(fallbackReminderRef.current);
         fallbackReminderRef.current = undefined;
       }
-
-      const result = await Reminders.cancelDepartureReminder({ origin, destination });
-      setIsReminderActive(false);
-      setReminderStatus(result.message);
     };
 
-    const setDepartureReminder = async () => {
+    // Runs one reminder operation at a time; the controls stay disabled meanwhile.
+    const runReminderTask = async task => {
+      if (reminderBusyRef.current) { return; }
+      reminderBusyRef.current = true;
+      setIsReminderBusy(true);
+      try {
+        await task(reminderRouteKeyRef.current);
+      } catch (exception) {
+        console.warn('NextSchedule: reminder task failed:', exception);
+      } finally {
+        reminderBusyRef.current = false;
+        setIsReminderBusy(false);
+      }
+    };
+
+    const markReminderInactive = () => {
+      clearForegroundFallbackReminder();
+      reminderDepartureRef.current = undefined;
+      setIsReminderActive(false);
+    };
+
+    const cancelDepartureReminder = async routeKey => {
+      clearForegroundFallbackReminder();
+      const result = await Reminders.cancelDepartureReminder({ origin, destination });
+      if (routeKey !== reminderRouteKeyRef.current) { return; }
+      markReminderInactive();
+      setReminderStatus(result);
+    };
+
+    const setDepartureReminder = () => runReminderTask(async routeKey => {
       if (isReminderActive) {
-        await cancelDepartureReminder();
+        await cancelDepartureReminder(routeKey);
         return;
       }
 
       if (!nextTripTime) { return; }
-      const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime: nextTripTime });
-      if (!result.ok && result.reason === 'unavailable' && setForegroundFallbackReminder()) {
+      const departureTime = nextTripTime;
+      const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime });
+      if (routeKey !== reminderRouteKeyRef.current) { return; }
+
+      if (!result.ok && result.reason === 'unsupported' && setForegroundFallbackReminder(departureTime)) {
+        reminderDepartureRef.current = departureTime.valueOf();
         setIsReminderActive(true);
-        setReminderStatus(Lang.t('reminderSetMessage'));
+        setReminderStatus({ message: Lang.t('reminderForegroundOnlyMessage'), shortMessage: Lang.t('reminderForegroundOnlyShortMessage') });
         return;
       }
+
+      reminderDepartureRef.current = result.ok ? result.departureAt : undefined;
       setIsReminderActive(result.ok);
-      setReminderStatus(result.message);
-    };
+      setReminderStatus(result);
+    });
+
+    const openReminderSettings = () => { Reminders.openSettings(reminderStatus?.action); };
+
+    // Keeps an active reminder in sync with nextTripTime (live ETA updates, or advancing past the reminded train).
+    useEffect(() => {
+      const reminderDepartureAt = reminderDepartureRef.current;
+
+      if (!nextTripTime || !isReminderActive || isReminderBusy || !Number.isFinite(reminderDepartureAt)) { return; }
+      if (Math.abs(nextTripTime.valueOf() - reminderDepartureAt) < REMINDER_RESCHEDULE_THRESHOLD_MS) { return; }
+
+      const departureTime = nextTripTime;
+
+      runReminderTask(async routeKey => {
+        if (reminderDepartureAt <= Date.now()) {
+          await Reminders.cancelDepartureReminder({ origin, destination });
+          if (routeKey === reminderRouteKeyRef.current) { markReminderInactive(); }
+          return;
+        }
+
+        if (fallbackReminderRef.current) {
+          if (setForegroundFallbackReminder(departureTime)) {
+            reminderDepartureRef.current = departureTime.valueOf();
+            return;
+          }
+
+          markReminderInactive();
+          setReminderStatus({ message: Lang.t('reminderUnavailableMessage'), shortMessage: Lang.t('reminderUnavailableShortMessage') });
+          return;
+        }
+
+        const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime, requestPermissions: false });
+        if (routeKey !== reminderRouteKeyRef.current) { return; }
+
+        if (result.ok) {
+          reminderDepartureRef.current = result.departureAt;
+          setReminderStatus(result.action ? result : { message: Lang.t('reminderRescheduledMessage'), shortMessage: Lang.t('reminderRescheduledShortMessage') });
+          return;
+        }
+
+        await Reminders.cancelDepartureReminder({ origin, destination });
+        if (routeKey !== reminderRouteKeyRef.current) { return; }
+        markReminderInactive();
+        setReminderStatus(result);
+      });
+    }, [ nextTripTime, isReminderActive, isReminderBusy ]);
+
+    // On the watch the feedback sits under the switch, so it's only shown briefly.
+    useEffect(() => {
+      if (!watchLayout || !reminderStatus) { return; }
+      const timeout = setTimeout(() => setReminderStatus(undefined), reminderStatus.action ? 8000 : 4000);
+      return () => clearTimeout(timeout);
+    }, [ watchLayout, reminderStatus ]);
+
+    useFocusEffect(
+      useCallback(() => {
+        refreshFavoriteState();
+      }, [ origin?.id, destination?.id ])
+    );
+
+    useEffect(() => {
+      if (typeof(favoritesVersion) == 'undefined') { return; }
+      refreshFavoriteState();
+    }, [ favoritesVersion ]);
 
     useEffect(() => {
       refreshFavoriteState();
@@ -469,6 +800,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
 
       if (forcePreviewData || previewMode === 'schedule' || previewMode === 'watch' || previewMode === 'watch-schedule') {
         const previewDepartures = [ dayjs().add(14, 'minute'), dayjs().add(36, 'minute'), dayjs().add(58, 'minute') ];
+        upcomingDeparturesRef.current = previewDepartures;
         setNextTripTime(previewDepartures[0]);
         setNextDepartures(previewDepartures);
         setRemainingTimeMessage(`(${Lang.t('nextTripRemainingTimeMessage').replace('%s', `14 ${Lang.t('minutes')}`)})`);
@@ -482,12 +814,18 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       fadeInNextTripTime();
 
       const subscription = AppState.addEventListener('change', nextAppState => {
-        if (nextAppState !== 'active') { Vibration.cancel(); }
+        if (nextAppState !== 'active') { Vibration.cancel(); return; }
+
+        // Back in the foreground: the countdown may be stale or the train may have already left.
+        advanceDepartures({ refreshLiveEstimate: true });
       });
 
       return () => {
         subscription?.remove?.();
         if (fallbackReminderRef.current) { clearTimeout(fallbackReminderRef.current); }
+        scheduleRequestRef.current++;
+        upcomingDeparturesRef.current = [];
+        liveEstimateRef.current       = null;
         Vibration.cancel();
       };
     }, [ origin.id, destination.id ]);
@@ -512,11 +850,11 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       const timeout = setTimeout(() => {
         if (typeof(nextTripTime) == 'undefined') { return; }
         const nextRemainingMillis = nextTripTime.diff();
-        if (nextRemainingMillis >= 0) {
+        if (nextRemainingMillis > 0) {
           setRemainingTimeMessage( buildRemainingTimeMessage() );
           setRemainingTimeMillis( nextRemainingMillis );
         } else {
-          Vibration.vibrate([ 1000, 75, 500, 75, 2500 ], true);
+          advanceDepartures({ notifyDeparture: true });
         }
       }, 1000);
 
@@ -528,12 +866,6 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       if (isNextTripFadedIn) { fadeOutNextTripTime(); }
       else { fadeInNextTripTime(); }
     }, [ isNextTripFadedIn ]);
-
-    useEffect(() => {
-      if (!shouldTryNextDay || previewMode) { return; }
-      let date = dayjs().add(1, 'day').hour(0).minute(0).second(0);
-      fetchNextTripTime(origin.title, destination.title, date);
-    }, [ shouldTryNextDay ]);
 
     useEffect(() => {
       if (!watchLayout || nextDepartures.length <= 1 || isWatchScrollHintDismissed) {
@@ -594,16 +926,17 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const reminderButton = tabletActionButton ? (
       <Pressable
         onPress={setDepartureReminder}
+        disabled={isReminderBusy}
         accessibilityRole="button"
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
-        accessibilityState={{ selected: isReminderActive }}
+        accessibilityState={{ selected: isReminderActive, disabled: isReminderBusy, busy: isReminderBusy }}
         style={({ pressed }) => [
           styles.actionButton,
           styles.reminderActionButton,
           styles.tabletReminderButton,
           {
             backgroundColor: theme.paperTheme.colors.secondaryContainer,
-            opacity: pressed ? 0.72 : 1
+            opacity: pressed || isReminderBusy ? 0.72 : 1
           }
         ]}
       >
@@ -630,6 +963,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
         mode={watchLayout && isReminderActive ? 'contained' : 'contained-tonal'}
         icon={reminderButtonIcon}
         onPress={setDepartureReminder}
+        disabled={isReminderBusy}
         compact={watchLayout || phoneActionButtonCompact}
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
         style={watchLayout
@@ -645,13 +979,18 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
         {reminderButtonLabel}
       </Button>
     );
-    const isReminderCancellationStatus = reminderStatus === Lang.t('reminderCanceledMessage');
-    const watchReminderFeedback = reminderStatus && !isReminderActive && !isReminderCancellationStatus ? (
-      <View style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft, width: watchReminderButtonWidth } ]}>
+    const watchReminderFeedback = reminderStatus ? (
+      <Pressable
+        onPress={reminderStatus.action ? openReminderSettings : undefined}
+        disabled={!reminderStatus.action}
+        accessibilityRole={reminderStatus.action ? 'button' : 'text'}
+        accessibilityLabel={reminderStatus.action ? `${reminderStatus.message} ${Lang.t('reminderOpenSettingsBtnLabel')}` : reminderStatus.message}
+        style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft, width: watchReminderButtonWidth, marginTop: 6 } ]}
+      >
         <Text numberOfLines={2} style={[ styles.watchReminderFeedbackText, { color: theme.accentStrong } ]}>
-          {compactReminderStatus(reminderStatus)}
+          {reminderStatus.action ? '⚙ ' : ''}{compactReminderStatus(reminderStatus)}
         </Text>
-      </View>
+      </Pressable>
     ) : null;
     const watchReminderSwitch = (
       <View
@@ -678,6 +1017,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
         <Switch
           value={isReminderActive}
           onValueChange={setDepartureReminder}
+          disabled={isReminderBusy}
           color={theme.accent}
           accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
         />
@@ -895,7 +1235,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
                 <StatusPill tone={sourceTone(scheduleSource)}>{sourceLabel(scheduleSource)}</StatusPill>
                 <OfflineModeHint isOffline={networkErrorDetected} sourceLabel={sourceLabel(scheduleSource)} navigation={navigation} />
               </View> : null}
-              {!watchLayout ? <Text variant="labelLarge" style={styles.boardLabel}>{Lang.t('nextTripScheduleForMessage')}</Text> : null}
+              {!watchLayout ? <Text variant="labelLarge" style={styles.boardLabel}>{Lang.t(scheduleSource === SOURCE.LIVE ? 'nextTripEstimatedForMessage' : 'nextTripScheduleForMessage')}</Text> : null}
               <Animated.View style={{ opacity: shouldLoopAnimation ? nextTripViewOpacity : 1 }}>
                 <Text variant={watchLayout ? 'displayMedium' : 'displayLarge'} style={[ styles.heroTime, watchLayout ? styles.heroTimeWatch : undefined ]} accessibilityLabel={`${sourceLabel(scheduleSource)} ${nextTripTime.format('HH:mm')}`}>
                   {nextTripTime.format('HH:mm')}
@@ -934,7 +1274,8 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
             <View style={[ styles.actions, watchLayout ? styles.actionsWatch : undefined ]}>
               {watchLayout ? (
                 <View style={styles.watchReminderButtonFrame}>
-                  {watchReminderFeedback || watchReminderSwitch}
+                  {watchReminderSwitch}
+                  {watchReminderFeedback}
                 </View>
               ) : reminderButton}
             </View>
@@ -952,14 +1293,14 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
 
           {departuresList}
 
-          {reminderStatus ? (
-            watchLayout ? (
-              <WatchScaleItem>
-                <StatusPill tone="accent" style={styles.statusMessage}>{compactReminderStatus(reminderStatus)}</StatusPill>
-              </WatchScaleItem>
-            ) : (
-              <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus}</StatusPill>
-            )
+          {reminderStatus && !watchLayout ? (
+            <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus.message}</StatusPill>
+          ) : null}
+
+          {reminderStatus?.action && !watchLayout ? (
+            <Button mode="text" icon="cog-outline" compact onPress={openReminderSettings} style={styles.statusMessage}>
+              {Lang.t('reminderOpenSettingsBtnLabel')}
+            </Button>
           ) : null}
 
           {shouldLoopAnimation ? (

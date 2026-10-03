@@ -2,7 +2,7 @@ import normalizeSpecialCharacters from 'specialtonormal';
 
 import GestureRecognizer from 'react-native-swipe-gestures';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   BackHandler,
@@ -13,6 +13,8 @@ import {
   StyleSheet,
   View
 } from 'react-native';
+
+import { useFocusEffect } from '@react-navigation/native';
 
 import * as Location from 'expo-location';
 
@@ -37,12 +39,25 @@ import Lang        from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import { useTheme } from '../includes/Theme';
 import { getUIPreviewMode, isWatchUIPreview, previewState } from '../includes/UIPreview';
+import { fetchWithTimeout } from '../includes/Network';
+import { nowInArgentina }   from '../includes/Time';
 
 const PROXIMITY_WARNING_METERS = 1200;
 
+const WATCH_FETCH_TIMEOUT_MS              = 6000;
+const CACHE_VERIFICATION_CONCURRENCY      = 3;
+const HOLIDAYS_CACHE_KEY_PATTERN          = /\/holidays_(\d{4})\.json$/;
+const LAST_KNOWN_LOCATION_MAX_AGE_MS      = 5 * 60 * 1000;
+const LAST_KNOWN_LOCATION_ACCURACY_METERS = 1000;
+
+let cacheVerificationInProgress = false;
+
 const formatDistanceKm = meters => (meters / 1000).toFixed(1);
 
-const tripDestination = trip => trip.destination;
+// Trips from the current origin only need the destination; others show the full route.
+const quickTripTitle = trip => trip.isCurrentOrigin
+    ? trip.destination.title
+    : `${trip.origin.title} → ${trip.destination.title}`;
 
 function SettingsButton({ navigation }) {
     const { theme } = useTheme();
@@ -195,7 +210,7 @@ function QuickRouteCard({ trip, label, onPress, compact = false }) {
                     style={styles.quickRoutePressableWatch}
                 >
                     <Text numberOfLines={1} style={[ styles.quickRouteLabelWatch, { color: theme.accentStrong } ]}>{label}</Text>
-                    <Text numberOfLines={2} style={[ styles.quickRouteTitleWatch, { color: theme.accentStrong } ]}>{tripDestination(trip).title}</Text>
+                    <Text numberOfLines={2} style={[ styles.quickRouteTitleWatch, { color: theme.accentStrong } ]}>{quickTripTitle(trip)}</Text>
                 </Pressable>
             </Surface>
         );
@@ -204,7 +219,7 @@ function QuickRouteCard({ trip, label, onPress, compact = false }) {
     return (
         <Surface mode="flat" elevation={1} style={[ styles.quickRouteCard, { backgroundColor: theme.paperTheme.colors.surfaceVariant } ]}>
             <List.Item
-                title={tripDestination(trip).title}
+                title={quickTripTitle(trip)}
                 description={label}
                 titleNumberOfLines={2}
                 left={props => <List.Icon {...props} icon="ray-start-arrow" />}
@@ -254,6 +269,10 @@ export default function DestinationPicker({ navigation }) {
     const [ favoriteTrips,              setFavoriteTrips              ] = useState([]);
     const [ recentTrips,                setRecentTrips                ] = useState([]);
     const [ tabletDestination,          setTabletDestination          ] = useState();
+    const [ offlineDataFetchedAt,       setOfflineDataFetchedAt       ] = useState();
+    const [ favoritesVersion,           setFavoritesVersion           ] = useState(0);
+
+    const networkTimeoutMs = watchLayout ? WATCH_FETCH_TIMEOUT_MS : undefined;
 
     const destinationList = useMemo(() => {
         if (!allDestinationsList) { return []; }
@@ -262,34 +281,61 @@ export default function DestinationPicker({ navigation }) {
         return allDestinationsList.filter(item => item.id !== originStation.id);
     }, [ allDestinationsList, originStation ]);
 
+    const resolveTrips = trips => {
+        if (!allDestinationsList) { return []; }
+
+        return trips
+            .map(trip => Preferences.resolveTrip(trip, allDestinationsList))
+            .filter(Boolean)
+            .filter((trip, index, array) => array.findIndex(candidate => candidate.id === trip.id) === index);
+    };
+
+    const resolvedFavoriteTrips = useMemo(() => resolveTrips(favoriteTrips), [ favoriteTrips, allDestinationsList ]);
+
+    const resolvedRecentTrips = useMemo(() => resolveTrips(recentTrips), [ recentTrips, allDestinationsList ]);
+
     const currentOriginFavoriteDestinationIds = useMemo(() => {
         if (!originStation) { return []; }
 
-        return favoriteTrips
+        return resolvedFavoriteTrips
             .filter(trip => trip.origin.id === originStation.id)
             .map(trip => trip.destination.id);
-    }, [ favoriteTrips, originStation ]);
+    }, [ resolvedFavoriteTrips, originStation ]);
 
     const favoriteDestinations = useMemo(() => {
-        if (!originStation) { return []; }
-
-        return favoriteTrips
-            .filter(trip => trip.origin.id === originStation.id)
-            .map(trip => destinationList.find(item => item.id === trip.destination.id))
+        return currentOriginFavoriteDestinationIds
+            .map(id => destinationList.find(item => item.id === id))
             .filter(Boolean);
-    }, [ favoriteTrips, destinationList, originStation ]);
+    }, [ currentOriginFavoriteDestinationIds, destinationList ]);
 
-    const recentDestinations = useMemo(() => {
-        if (!originStation) { return []; }
+    // Single source for the favorites/recents sections: { id, origin, destination, kind, isCurrentOrigin }.
+    const quickTrips = useMemo(() => {
+        const isCurrentOrigin = trip => Boolean(originStation) && trip.origin.id === originStation.id;
+        const toQuickTrip     = kind => trip => ({
+            id:              `${kind}-${trip.id}`,
+            origin:          trip.origin,
+            destination:     trip.destination,
+            kind,
+            isCurrentOrigin: isCurrentOrigin(trip)
+        });
+        const favoriteIds = new Set(resolvedFavoriteTrips.map(trip => trip.id));
 
-        return recentTrips
-            .filter(trip => trip.origin.id === originStation.id)
-            .map(trip => destinationList.find(item => item.id === trip.destination.id))
-            .filter(Boolean)
-            .filter((item, index, array) => array.findIndex(candidate => candidate.id === item.id) === index)
-            .filter(item => currentOriginFavoriteDestinationIds.indexOf(item.id) === -1)
-            .slice(0, 3);
-    }, [ recentTrips, destinationList, originStation, currentOriginFavoriteDestinationIds ]);
+        const favorites = [
+            ...resolvedFavoriteTrips.filter(isCurrentOrigin),
+            ...resolvedFavoriteTrips.filter(trip => !isCurrentOrigin(trip))
+        ].map(toQuickTrip('favorite'));
+
+        const recents = resolvedRecentTrips
+            .filter(isCurrentOrigin)
+            .filter(trip => !favoriteIds.has(trip.id))
+            .slice(0, 3)
+            .map(toQuickTrip('recent'));
+
+        return [ ...favorites, ...recents ];
+    }, [ resolvedFavoriteTrips, resolvedRecentTrips, originStation ]);
+
+    const favoriteQuickTrips = quickTrips.filter(trip => trip.kind === 'favorite');
+    const recentQuickTrips   = quickTrips.filter(trip => trip.kind === 'recent');
 
     const prioritizedDestinations = useMemo(() => {
         const favoriteIds = currentOriginFavoriteDestinationIds;
@@ -305,9 +351,23 @@ export default function DestinationPicker({ navigation }) {
     const crash = message => { setCrashMessage(message); };
 
     const refreshPreferences = async () => {
-        setFavoriteTrips(await Preferences.getFavoriteTrips());
-        setRecentTrips(await Preferences.getRecentTrips());
+        const [ nextFavoriteTrips, nextRecentTrips ] = await Promise.all([
+            Preferences.getFavoriteTrips(),
+            Preferences.getRecentTrips()
+        ]);
+
+        setFavoriteTrips(nextFavoriteTrips);
+        setRecentTrips(nextRecentTrips);
+        setFavoritesVersion(version => version + 1);
     };
+
+    // Favorites can change on NextSchedule, so re-read them whenever this screen regains focus.
+    useFocusEffect(
+        useCallback(() => {
+            if (previewMode) { return; }
+            refreshPreferences();
+        }, [ previewMode ])
+    );
 
     const swipeRightHandler = state => {
         if (!Platform.constants || Platform.constants.uiMode != 'watch') { return; }
@@ -325,53 +385,80 @@ export default function DestinationPicker({ navigation }) {
         );
     };
 
-    const verifyCachedResources = async () => {
-        setCurrentOperation( Lang.t('verifyCachedResourcesMessage') + '…' );
-
-        let cacheKeys     = await Cache.keys(),
-            unmatchedKeys = 0;
+    const verifyCachedResource = async url => {
+        let remoteChecksum;
 
         try {
-            while (cacheKeys.length > 0) {
-                let url = cacheKeys[ Object.keys(cacheKeys)[0] ];
+            let remoteChecksumURL = (
+                process.env.REMOTE_BASE_URL + '/' +
+                (new URL(url)).pathname
+                    .replace(new RegExp('^\/'),    '')
+                    .replace(new RegExp('.json$'), '') + '_sum'
+            );
 
-                if (url.indexOf('http') !== 0) {
-                    cacheKeys.shift();
+            remoteChecksum = (await (await fetchWithTimeout(remoteChecksumURL, {}, networkTimeoutMs)).text()).trim().toLowerCase();
+        } catch (exception) {
+            // A missing or unreachable checksum means "unknown", keep the cached copy.
+            console.debug(`verifyCachedResource: checksum unavailable for "${url}":`, exception);
+            return;
+        }
+
+        if (!/^[0-9a-f]{32}$/.test(remoteChecksum)) { return; }
+
+        let file = await Cache.get(url);
+
+        if (file === null || MD5( JSON.stringify(file) ).toString() === remoteChecksum) { return; }
+
+        try {
+            let prefetchResponse = await fetchWithTimeout(url, {}, networkTimeoutMs),
+                prefetchJSON     = await prefetchResponse.json();
+
+            await Cache.set(url, prefetchJSON);
+        } catch (prefetchException) {
+            console.warn(`verifyCachedResource: prefetch failed for "${url}", keeping cached copy:`, prefetchException);
+        }
+    };
+
+    const verifyCachedResources = async freshSince => {
+        if (cacheVerificationInProgress) { return; }
+        cacheVerificationInProgress = true;
+
+        try {
+            let oldestHolidaysYear = nowInArgentina().year() - 1,
+                cacheKeys          = (await Cache.keys()).filter(key => key.indexOf('http') === 0),
+                pendingKeys        = [];
+
+            for (const url of cacheKeys) {
+                const holidaysMatch = url.match(HOLIDAYS_CACHE_KEY_PATTERN);
+
+                if (holidaysMatch && parseInt(holidaysMatch[1]) < oldestHolidaysYear) {
+                    await Cache.remove(url);
                     continue;
                 }
 
-                let remoteChecksumURL = (
-                    process.env.REMOTE_BASE_URL + '/' +
-                    (new URL(url)).pathname
-                        .replace(new RegExp('^\/'),    '')
-                        .replace(new RegExp('.json$'), '') + '_sum'
-                ),  remoteChecksum = await (await fetch(remoteChecksumURL)).text();
+                // Skip entries already refreshed from the network during this startup.
+                if ((await Cache.getFetchedAt(url) ?? 0) >= freshSince) { continue; }
 
-                let file     = await Cache.get(url),
-                    checksum = MD5( JSON.stringify(file) ).toString();
+                pendingKeys.push(url);
+            }
 
-                if (checksum !== remoteChecksum) {
+            const verifyPendingKeys = async () => {
+                while (pendingKeys.length > 0) {
+                    const url = pendingKeys.shift();
+
                     try {
-                        let prefetchResponse = await fetch(url),
-                            prefetchJSON     = await prefetchResponse.json();
-
-                        Cache.set(url, prefetchJSON);
-                    } catch (prefetchException) {
-                        console.warn(`verifyCachedResources: prefetch failed for "${url}":`, prefetchException);
-                    }
-
-                    unmatchedKeys++;
-
-                    if (unmatchedKeys >= process.env.CACHE_MAX_UNMATCHED_KEYS_FOR_CLEAR) {
-                        await Cache.clear();
-                        return;
+                        await verifyCachedResource(url);
+                    } catch (exception) {
+                        console.warn(`verifyCachedResources: couldn't verify "${url}":`, exception);
                     }
                 }
+            };
 
-                cacheKeys.shift();
-            }
+            await Promise.all(Array.from({ length: CACHE_VERIFICATION_CONCURRENCY }, verifyPendingKeys));
         } catch (exception) {
             console.warn('verifyCachedResources: couldn\'t query:', exception);
+        } finally {
+            cacheVerificationInProgress = false;
         }
     };
 
@@ -387,7 +474,7 @@ export default function DestinationPicker({ navigation }) {
             if ([ 'station', 'halt' ].indexOf(railway) === -1 && [ 'station', 'stop_area' ].indexOf(publicTransport) === -1) { return; }
 
             newTrainStationsMap.push({
-                name:      station.tags.name.replace(/ \(.*'/, ''),
+                name:      station.tags.name.replace(/ \(.*\)/, ''),
                 shortName: station.tags.short_name,
                 latitude:  (station.lat ?? station.center.lat),
                 longitude: (station.lon ?? station.center.lon)
@@ -397,40 +484,96 @@ export default function DestinationPicker({ navigation }) {
         setTrainStationsMap(newTrainStationsMap);
     };
 
-    const fetchJSONWithCache = async ({ url, onLoad, errorMessage, operationMessage }) => {
+    // Resolves true when the resource came from the network, false when it fell back to cache (or failed).
+    const fetchJSONWithCache = async ({ url, onLoad, errorMessage, operationMessage, onUnavailable }) => {
         setCurrentOperation( operationMessage + '…' );
 
         try {
-            const response = await fetch(url);
+            const response = await fetchWithTimeout(url, {}, networkTimeoutMs);
             const json     = await response.json();
 
             onLoad(json);
-            Cache.set(url, json);
+            await Cache.set(url, json);
+            return true;
         } catch (exception) {
-            let cachedData = await Cache.get(url);
-
-            if (cachedData) {
-                setNetworkErrorDetected(true);
-                onLoad(cachedData);
-            } else {
-                console.error(`fetchJSONWithCache: couldn't query ${url}:`, exception);
-                crash(errorMessage);
-            }
+            console.warn(`fetchJSONWithCache: couldn't query ${url}:`, exception);
         }
+
+        try {
+            const cachedData = await Cache.get(url);
+
+            if (cachedData !== null) {
+                onLoad(cachedData);
+                setNetworkErrorDetected(true);
+
+                const fetchedAt = await Cache.getFetchedAt(url);
+                if (fetchedAt !== null) {
+                    setOfflineDataFetchedAt(previous => previous ? Math.min(previous, fetchedAt) : fetchedAt);
+                }
+
+                return false;
+            }
+        } catch (cacheException) {
+            console.error(`fetchJSONWithCache: couldn't load cached ${url}:`, cacheException);
+        }
+
+        if (onUnavailable) {
+            await onUnavailable();
+            return false;
+        }
+
+        console.error(`fetchJSONWithCache: no data available for ${url}`);
+        crash(errorMessage);
+        return false;
+    };
+
+    const showManualOriginPickerFallback = (reason = Lang.t('manualOriginFallbackMessage')) => {
+        setManualOriginReason(reason);
+        setShowManualOriginPicker(true);
     };
 
     const fetchTrainStationsMap = async () => await fetchJSONWithCache({
         url:              process.env.REMOTE_BASE_URL + '/train_stations.json',
         onLoad:           loadTrainStationsMap,
         errorMessage:     Lang.t('fetchTrainStationsMapError'),
-        operationMessage: Lang.t('fetchingTrainStationsMapMessage')
+        operationMessage: Lang.t('fetchingTrainStationsMapMessage'),
+        // Without the map GPS detection can't work; detectOriginStation goes to the manual picker.
+        onUnavailable:    () => {
+            setNetworkErrorDetected(true);
+            setTrainStationsMap(null);
+        }
     });
 
+    const loadFallbackHolidaysList = async () => {
+        setNetworkErrorDetected(true);
+
+        try {
+            const holidaysKeys = (await Cache.keys())
+                .filter(key => key.indexOf(process.env.REMOTE_BASE_URL) === 0 && HOLIDAYS_CACHE_KEY_PATTERN.test(key))
+                .sort((a, b) => parseInt(b.match(HOLIDAYS_CACHE_KEY_PATTERN)[1]) - parseInt(a.match(HOLIDAYS_CACHE_KEY_PATTERN)[1]));
+
+            for (const key of holidaysKeys) {
+                const cachedHolidays = await Cache.get(key);
+
+                if (Array.isArray(cachedHolidays)) {
+                    console.warn(`loadFallbackHolidaysList: using cached "${key}"`);
+                    setHolidaysList(cachedHolidays);
+                    return;
+                }
+            }
+        } catch (exception) {
+            console.warn('loadFallbackHolidaysList: couldn\'t read cached holidays:', exception);
+        }
+
+        setHolidaysList([]);
+    };
+
     const fetchHolidaysList = async () => await fetchJSONWithCache({
-        url:              process.env.REMOTE_BASE_URL + `/holidays_${(new Date().getFullYear())}.json`,
+        url:              process.env.REMOTE_BASE_URL + `/holidays_${nowInArgentina().year()}.json`,
         onLoad:           setHolidaysList,
         errorMessage:     Lang.t('fetchHolidaysListError'),
-        operationMessage: Lang.t('fetchingHolidaysListMessage')
+        operationMessage: Lang.t('fetchingHolidaysListMessage'),
+        onUnavailable:    loadFallbackHolidaysList
     });
 
     const loadAvailabilityOptions = json => {
@@ -470,7 +613,11 @@ export default function DestinationPicker({ navigation }) {
         const timeoutHandle = setTimeout(() => reject(new Error(`Couldn't get GPS location after ${timeout / 1000} seconds.`)), timeout);
 
         try {
-            const location = await Location.getLastKnownPositionAsync({ accuracy: Location.Accuracy.Low });
+            // Resolves null when the last fix is older or less accurate than allowed.
+            const location = await Location.getLastKnownPositionAsync({
+                maxAge:           LAST_KNOWN_LOCATION_MAX_AGE_MS,
+                requiredAccuracy: LAST_KNOWN_LOCATION_ACCURACY_METERS
+            });
             clearTimeout(timeoutHandle);
             resolve(location);
         } catch (exception) {
@@ -482,7 +629,15 @@ export default function DestinationPicker({ navigation }) {
     const areLocationPermissionsGranted = async () => {
         if (Platform.OS === 'android' && Platform.Version < 23) { return true; }
 
-        let { status } = await Location.requestForegroundPermissionsAsync();
+        let status;
+
+        try {
+            ({ status } = await Location.requestForegroundPermissionsAsync());
+        } catch (exception) {
+            console.error('areLocationPermissionsGranted:', exception);
+            showManualOriginPickerFallback();
+            return false;
+        }
 
         if (status !== 'granted') {
           setManualOriginReason( Lang.t('locationAccessDeniedMessage') );
@@ -520,6 +675,11 @@ export default function DestinationPicker({ navigation }) {
 
     const detectOriginStation = async () => {
         setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
+
+        if (!Array.isArray(trainStationsMap) || trainStationsMap.length === 0) {
+            showManualOriginPickerFallback();
+            return;
+        }
 
         if (!await areLocationPermissionsGranted()) { return; }
 
@@ -605,28 +765,54 @@ export default function DestinationPicker({ navigation }) {
         setSelectedId(undefined);
         setShowManualOriginPicker(false);
         setLoadFinished(true);
+        if (!previewMode) { refreshPreferences(); }
     };
 
-    const goToDestination = async item => {
+    const goToDestination = async (item, origin = originStation) => {
         setSelectedId(item.id);
-        await Preferences.recordRecentTrip(originStation, item);
-        await refreshPreferences();
 
-        if (tabletTwoPane) {
-            setTabletDestination(item);
-            return;
+        if (!originStation || origin.id !== originStation.id) {
+            setOriginStation(origin);
+            setOriginDistanceMeters(undefined);
+            setShowManualOriginPicker(false);
         }
 
+        if (tabletTwoPane) { setTabletDestination(item); }
+
+        await Preferences.recordRecentTrip(origin, item);
+        await refreshPreferences();
+
+        if (tabletTwoPane) { return; }
+
         navigation.navigate('NextSchedule', {
-            origin:       originStation,
+            origin:       origin,
             destination:  item,
             segmentsList: segmentsList,
             holidaysList: holidaysList
         });
     };
 
+    // Opens a favorite/recent trip, switching origin too when it belongs to another station.
+    const openTrip = trip => goToDestination(trip.destination, trip.origin);
+
     const toggleFavorite = async item => {
-        await Preferences.toggleFavoriteTrip(originStation, item);
+        if (!originStation) { return; }
+
+        const shouldBeFavorite = currentOriginFavoriteDestinationIds.indexOf(item.id) === -1;
+        const trip             = Preferences.buildTrip(originStation, item);
+
+        setFavoriteTrips(previousTrips => {
+            const otherTrips = previousTrips.filter(entry => !Preferences.isSameTrip(entry, trip));
+
+            return shouldBeFavorite ? [ trip, ...otherTrips ] : otherTrips;
+        });
+
+        try {
+            await Preferences.setFavoriteTrip(originStation, item, shouldBeFavorite);
+        } catch (exception) {
+            console.warn('toggleFavorite: couldn\'t update favorite trip:', exception);
+        }
+
         await refreshPreferences();
     };
 
@@ -642,9 +828,30 @@ export default function DestinationPicker({ navigation }) {
     };
 
     const bootstrap = async () => {
-        await refreshPreferences();
-        await verifyCachedResources();
-        await Promise.all([ fetchTrainStationsMap(), fetchHolidaysList(), fetchAvailabilityOptions() ]);
+        const bootstrapStartedAt = Date.now();
+
+        setNetworkErrorDetected(false);
+        setOfflineDataFetchedAt(undefined);
+
+        try {
+            await refreshPreferences();
+        } catch (exception) {
+            console.warn('bootstrap: couldn\'t load preferences:', exception);
+        }
+
+        try {
+            const fetchedFromNetwork = await Promise.all([ fetchTrainStationsMap(), fetchHolidaysList(), fetchAvailabilityOptions() ]);
+
+            if (fetchedFromNetwork.every(Boolean)) { setNetworkErrorDetected(false); }
+
+            // Checksums are verified in the background once the app is usable, only if the network answered.
+            if (fetchedFromNetwork.some(Boolean)) {
+                verifyCachedResources(bootstrapStartedAt).catch(exception => console.warn('bootstrap: verifyCachedResources:', exception));
+            }
+        } catch (exception) {
+            console.error('bootstrap:', exception);
+            crash(Lang.t('fetchAvailabilityOptionsError'));
+        }
     };
 
     useEffect(() => {
@@ -680,7 +887,11 @@ export default function DestinationPicker({ navigation }) {
 
     useEffect(() => {
         if (typeof(trainStationsMap) == 'undefined' || typeof(allDestinationsList) == 'undefined' || typeof(originStation) != 'undefined' || showManualOriginPicker || previewMode) { return; }
-        detectOriginStation();
+
+        detectOriginStation().catch(exception => {
+            console.error('detectOriginStation: unexpected failure:', exception);
+            showManualOriginPickerFallback();
+        });
     }, [ trainStationsMap, allDestinationsList, showManualOriginPicker ]);
 
     useEffect(() => {
@@ -703,12 +914,35 @@ export default function DestinationPicker({ navigation }) {
         }
     }, [ tabletTwoPane, originStation, showManualOriginPicker, destinationList, favoriteDestinations, prioritizedDestinations, tabletDestination ]);
 
+    // Opens the route of a tapped departure reminder (cold or warm start) once stations and schedules are loaded.
+    useEffect(() => {
+        if (!allDestinationsList || !segmentsList || typeof(holidaysList) == 'undefined' || previewMode) { return; }
+
+        const Reminders = require('../includes/Reminders').default;
+
+        return Reminders.onRouteRequested(({ originId, destinationId }) => {
+            const routeOrigin      = allDestinationsList.find(item => String(item.id) === originId);
+            const routeDestination = allDestinationsList.find(item => String(item.id) === destinationId);
+
+            if (!routeOrigin || !routeDestination) { return; }
+            if (navigation.canGoBack()) { navigation.popToTop(); }
+
+            if (tabletTwoPane) {
+                replaceTabletRoute({ origin: routeOrigin, destination: routeDestination });
+                return;
+            }
+
+            navigation.navigate('NextSchedule', { origin: routeOrigin, destination: routeDestination, segmentsList, holidaysList });
+        });
+    }, [ allDestinationsList, segmentsList, holidaysList, tabletTwoPane ]);
+
     const replaceTabletRoute = nextRoute => {
         setOriginStation(nextRoute.origin);
         setOriginDistanceMeters(undefined);
         setTabletDestination(nextRoute.destination);
         setSelectedId(nextRoute.destination.id);
         setShowManualOriginPicker(false);
+        if (!previewMode) { refreshPreferences(); }
     };
 
     const renderDestinationItem = ({ item }) => (
@@ -796,10 +1030,10 @@ export default function DestinationPicker({ navigation }) {
         );
     }
 
-    const quickTrips = [
-        ...favoriteDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('favoritesSectionTitle') })),
-        ...recentDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('recentsSectionTitle') }))
-    ];
+    const quickTripSections = [
+        { key: 'favorite', title: Lang.t('favoritesSectionTitle'), trips: favoriteQuickTrips },
+        { key: 'recent',   title: Lang.t('recentsSectionTitle'),   trips: recentQuickTrips   }
+    ].filter(section => section.trips.length > 0);
 
     if (tabletTwoPane) {
         const isChoosingTabletOrigin = showManualOriginPicker || !originStation;
@@ -856,16 +1090,16 @@ export default function DestinationPicker({ navigation }) {
                                     {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
                                 </TransitCard>
 
-                                {quickTrips.length > 0 ? (
-                                    <View>
-                                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                                {quickTripSections.map(section => (
+                                    <View key={section.key}>
+                                        <Text variant="titleMedium" style={styles.sectionTitle}>{section.title}</Text>
                                         <View style={styles.tabletQuickRouteList}>
-                                            {quickTrips.map(trip => (
-                                                <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                                            {section.trips.map(trip => (
+                                                <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} />
                                             ))}
                                         </View>
                                     </View>
-                                ) : null}
+                                ))}
 
                                 <View>
                                     <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text>
@@ -873,7 +1107,7 @@ export default function DestinationPicker({ navigation }) {
                                         data={prioritizedDestinations}
                                         renderItem={renderDestinationItem}
                                         keyExtractor={item => item.id}
-                                        extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
+                                        extraData={`${selectedId}-${currentOriginFavoriteDestinationIds.join(',')}`}
                                         scrollEnabled={false}
                                         showsVerticalScrollIndicator={false}
                                         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
@@ -894,6 +1128,8 @@ export default function DestinationPicker({ navigation }) {
                             segmentsList={segmentsList}
                             holidaysList={holidaysList}
                             onReplaceRoute={replaceTabletRoute}
+                            onFavoriteChange={refreshPreferences}
+                            favoritesVersion={favoritesVersion}
                             forcePreviewData={Boolean(previewMode)}
                         />
                     ) : (
@@ -963,27 +1199,27 @@ export default function DestinationPicker({ navigation }) {
                     </TransitCard>
                 )}
 
-                {quickTrips.length > 0 ? (
+                {quickTripSections.map(section => (
                     watchLayout ? (
-                        <WatchScaleItem>
+                        <WatchScaleItem key={section.key}>
                             <View style={styles.watchQuickRouteSection}>
-                                <Text variant="labelLarge" style={[ styles.sectionTitle, styles.sectionTitleWatch ]}>{Lang.t('favoritesSectionTitle')}</Text>
-                                {quickTrips.map(trip => (
-                                    <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} compact />
+                                <Text variant="labelLarge" style={[ styles.sectionTitle, styles.sectionTitleWatch ]}>{section.title}</Text>
+                                {section.trips.map(trip => (
+                                    <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} compact />
                                 ))}
                             </View>
                         </WatchScaleItem>
                     ) : (
-                        <View>
-                            <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                        <View key={section.key}>
+                            <Text variant="titleMedium" style={styles.sectionTitle}>{section.title}</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRouteList}>
-                                {quickTrips.map(trip => (
-                                    <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                                {section.trips.map(trip => (
+                                    <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} />
                                 ))}
                             </ScrollView>
                         </View>
                     )
-                ) : null}
+                ))}
 
                 {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem, <SettingsButton navigation={navigation} />) : (
                     <View>
@@ -992,7 +1228,7 @@ export default function DestinationPicker({ navigation }) {
                             data={prioritizedDestinations}
                             renderItem={renderDestinationItem}
                             keyExtractor={item => item.id}
-                            extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
+                            extraData={`${selectedId}-${currentOriginFavoriteDestinationIds.join(',')}`}
                             scrollEnabled={false}
                             showsVerticalScrollIndicator={false}
                             ItemSeparatorComponent={() => <View style={{ height: 8 }} />}

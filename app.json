@@ -6,6 +6,7 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "primaryColor": "#be4936",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ar.com.facundomontero.belgranowear",
@@ -22,11 +23,14 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.INTERNET",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.VIBRATE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
         "com.google.android.gms.permission.AD_ID"
       ]
     },
@@ -34,15 +38,49 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withBelgranoNativeConfig",
       "expo-localization",
-      "expo-notifications",
-      "./plugins/withBelgranoNativeConfig"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BelgranoWear usa tu ubicación para encontrar la estación más cercana y mostrarte los próximos trenes.",
+          "locationAlwaysPermission": false,
+          "locationAlwaysAndWhenInUsePermission": false,
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#be4936"
+        }
+      ]
     ],
     "scheme": "ar.com.facundomontero.belgranowear",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#fff8f6"
+    },
+    "locales": {
+      "es": {
+        "ios": {
+          "NSLocationWhenInUseUsageDescription": "BelgranoWear usa tu ubicación para encontrar la estación más cercana y mostrarte los próximos trenes."
+        },
+        "android": {
+          "loading_assets": "Cargando recursos..."
+        }
+      },
+      "en": {
+        "ios": {
+          "NSLocationWhenInUseUsageDescription": "BelgranoWear uses your location to find the nearest station and show you the upcoming trains."
+        },
+        "android": {
+          "loading_assets": "Loading assets..."
+        }
+      }
     }
   }
 }

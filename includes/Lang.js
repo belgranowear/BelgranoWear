@@ -1,21 +1,44 @@
 import * as Localization  from 'expo-localization';
 import { I18n }           from 'i18n-js';
 
-const Lang    = new I18n();
-const locales = Localization.getLocales();
+const Lang              = new I18n();
+const SUPPORTED_LOCALES = [ 'es', 'en' ];
 
 Lang.defaultLocale = 'en';
 Lang.locale        = Lang.defaultLocale;
 
-if (
-    locales.length > 0
-    &&
-    typeof(locales[0]) != 'undefined'
-) {
-    Lang.locale = locales[0].languageCode;
-} else {
-    console.warn(`No locales detected, falling back to ${Lang.defaultLocale}.`);
-}
+const detectLocale = () => {
+    let locales = [];
+
+    try {
+        locales = Localization.getLocales() || [];
+    } catch (exception) {
+        console.warn('Lang: failed to read device locales:', exception);
+    }
+
+    const languageCode = locales
+        .map(locale => (locale?.languageCode || locale?.languageTag?.split('-')[0] || '').toLowerCase())
+        .find(code => SUPPORTED_LOCALES.indexOf(code) > -1);
+
+    if (!languageCode) {
+        console.warn(`No supported locales detected, falling back to ${Lang.defaultLocale}.`);
+    }
+
+    return languageCode || Lang.defaultLocale;
+};
+
+// Returns true when the device language changed since the last detection.
+Lang.refreshLocale = () => {
+    const nextLocale = detectLocale();
+
+    if (nextLocale === Lang.locale) { return false; }
+
+    Lang.locale = nextLocale;
+
+    return true;
+};
+
+Lang.refreshLocale();
 
 Lang.enableFallback = true;
 Lang.translations   = {
@@ -25,6 +48,9 @@ Lang.translations   = {
         selectDestinationHint: 'Select a destination',
         goBackBtnLabel: 'Go back',
         noTripsFoundMessage: 'No trips found, please try again tomorrow.',
+        nextTripEstimatedForMessage: 'is estimated for',
+        day: 'day',
+        days: 'days',
         hour: 'hour',
         hours: 'hours',
         minute: 'minute',
@@ -66,6 +92,7 @@ Lang.translations   = {
         chooseOriginHint: 'Choose your origin station',
         detectedOriginWarning: 'Detected station is %s km away',
         favoritesSectionTitle: 'Favorites',
+        favoriteUpdateFailedMessage: 'Couldn\'t update favorites',
         recentsSectionTitle: 'Recent trips',
         allDestinationsSectionTitle: 'All destinations',
         addFavoriteBtnLabel: 'Add favorite',
@@ -111,6 +138,19 @@ Lang.translations   = {
         reminderSetShortMessage: 'Reminder set',
         reminderCanceledMessage: 'Reminder turned off',
         reminderUnavailableMessage: 'This train is too soon for a 5 minute reminder.',
+        reminderPlatformUnsupportedMessage: 'Reminders can\'t be scheduled on this device.',
+        reminderPlatformUnsupportedShortMessage: 'Not available',
+        reminderForegroundOnlyMessage: 'Notifications aren\'t available here: we\'ll vibrate 5 min before, only while this screen stays open.',
+        reminderForegroundOnlyShortMessage: 'Only while open',
+        reminderSchedulingFailedMessage: 'We couldn\'t schedule the reminder. Please try again.',
+        reminderSchedulingFailedShortMessage: 'Couldn\'t set it',
+        reminderRescheduledMessage: 'Reminder moved to the updated departure time',
+        reminderRescheduledShortMessage: 'Reminder moved',
+        reminderExactAlarmHintMessage: 'Reminder set. Allow "Alarms & reminders" so it arrives on time.',
+        reminderExactAlarmHintShortMessage: 'Allow alarms',
+        reminderOpenSettingsBtnLabel: 'Open settings',
+        notificationPermissionBlockedMessage: 'Notifications are turned off for this app.',
+        notificationPermissionBlockedShortMessage: 'Enable in settings',
         reminderUnavailableShortMessage: 'Too soon',
         reminderAlertTitle: 'Train reminder',
         reminderAlertBody: 'Your train from %s to %s leaves at %s.',
@@ -126,6 +166,9 @@ Lang.translations   = {
         selectDestinationHint: 'Seleccione un destino',
         goBackBtnLabel: 'Volver',
         noTripsFoundMessage: 'No se encontraron viajes, volvé a intentarlo mañana.',
+        nextTripEstimatedForMessage: 'está estimado para las',
+        day: 'día',
+        days: 'días',
         hour: 'hora',
         hours: 'horas',
         minute: 'minuto',
@@ -167,6 +210,7 @@ Lang.translations   = {
         chooseOriginHint: 'Elegí tu estación de origen',
         detectedOriginWarning: 'La estación detectada está a %s km',
         favoritesSectionTitle: 'Favoritos',
+        favoriteUpdateFailedMessage: 'No se pudieron actualizar los favoritos',
         recentsSectionTitle: 'Viajes recientes',
         allDestinationsSectionTitle: 'Todos los destinos',
         addFavoriteBtnLabel: 'Agregar favorito',
@@ -212,6 +256,19 @@ Lang.translations   = {
         reminderSetShortMessage: 'Activado',
         reminderCanceledMessage: 'Recordatorio desactivado',
         reminderUnavailableMessage: 'Este tren sale demasiado pronto para avisarte 5 minutos antes.',
+        reminderPlatformUnsupportedMessage: 'No se pueden programar recordatorios en este dispositivo.',
+        reminderPlatformUnsupportedShortMessage: 'No disponible',
+        reminderForegroundOnlyMessage: 'Las notificaciones no están disponibles acá: vamos a vibrar 5 min antes, sólo mientras esta pantalla siga abierta.',
+        reminderForegroundOnlyShortMessage: 'Sólo con la app abierta',
+        reminderSchedulingFailedMessage: 'No pudimos programar el recordatorio. Probá de nuevo.',
+        reminderSchedulingFailedShortMessage: 'No se pudo activar',
+        reminderRescheduledMessage: 'Recordatorio movido a la nueva hora de salida',
+        reminderRescheduledShortMessage: 'Aviso reprogramado',
+        reminderExactAlarmHintMessage: 'Recordatorio activado. Permití "Alarmas y recordatorios" para que llegue a tiempo.',
+        reminderExactAlarmHintShortMessage: 'Permití alarmas',
+        reminderOpenSettingsBtnLabel: 'Abrir ajustes',
+        notificationPermissionBlockedMessage: 'Las notificaciones están desactivadas para esta app.',
+        notificationPermissionBlockedShortMessage: 'Activalas en ajustes',
         reminderUnavailableShortMessage: 'Sale muy pronto',
         reminderAlertTitle: 'Recordatorio de tren',
         reminderAlertBody: 'Tu tren desde %s hacia %s sale a las %s.',

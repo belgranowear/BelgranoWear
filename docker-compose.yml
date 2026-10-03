@@ -7,7 +7,7 @@ services:
       - .:/app
     environment:
       - ACTION=${ACTION:-}
-      - MODE=${MODE:-}
+      - MODE=${MODE:-test}
       - PLATFORM=${PLATFORM:-android}
       - BUILD_FINGERPRINT=${BUILD_FINGERPRINT:-}
       - ANDROID_BASE_VERSION_CODE=${ANDROID_BASE_VERSION_CODE:-}
