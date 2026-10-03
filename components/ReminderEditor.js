@@ -23,7 +23,7 @@ import Preferences from '../includes/Preferences';
 import { useTheme } from '../includes/Theme';
 import { isAnyUIPreview, previewState } from '../includes/UIPreview';
 
-import AnimatedSheet from './layout/AnimatedSheet';
+import AnimatedSheet, { SheetDragArea } from './layout/AnimatedSheet';
 import { clamp, useResponsiveMetrics } from './ui';
 
 export const WEEKDAYS              = [ 1, 2, 3, 4, 5, 6, 7 ];
@@ -381,26 +381,32 @@ function SheetEditor({ visible, initialValue, onSave, onDismiss, onDelete }) {
                 }
             ]}
         >
-            {centered ? null : <View style={[ styles.handle, { backgroundColor: theme.roles.outline } ]} />}
+            <SheetDragArea>
+                {centered ? null : (
+                    <View style={styles.handleArea}>
+                        <View style={[ styles.handle, { backgroundColor: theme.roles.outline } ]} />
+                    </View>
+                )}
 
-            <View style={styles.sheetHeader}>
-                <Text variant="titleLarge" style={[ styles.sheetTitle, theme.type.emphasized.title ]}>
-                    {Lang.t(value.id ? 'editReminderTitle' : 'newReminderBtnLabel')}
-                </Text>
-                {value.id && onDelete ? (
+                <View style={styles.sheetHeader}>
+                    <Text variant="titleLarge" style={[ styles.sheetTitle, theme.type.emphasized.title ]}>
+                        {Lang.t(value.id ? 'editReminderTitle' : 'newReminderBtnLabel')}
+                    </Text>
+                    {value.id && onDelete ? (
+                        <IconButton
+                            icon="delete-outline"
+                            onPress={() => onDelete(value)}
+                            accessibilityLabel={Lang.t('reminderDeleteBtnLabel')}
+                        />
+                    ) : null}
                     <IconButton
-                        icon="delete-outline"
-                        onPress={() => onDelete(value)}
-                        accessibilityLabel={Lang.t('reminderDeleteBtnLabel')}
+                        icon="close"
+                        mode="contained-tonal"
+                        onPress={onDismiss}
+                        accessibilityLabel={Lang.t('reminderCloseBtnLabel')}
                     />
-                ) : null}
-                <IconButton
-                    icon="close"
-                    mode="contained-tonal"
-                    onPress={onDismiss}
-                    accessibilityLabel={Lang.t('reminderCloseBtnLabel')}
-                />
-            </View>
+                </View>
+            </SheetDragArea>
 
             <ScrollView
                 style={styles.sheetScroll}
@@ -770,6 +776,14 @@ const styles = StyleSheet.create({
         paddingTop:     8,
         paddingBottom:  16,
         overflow:       'hidden'
+    },
+    handleArea: {
+        // Taller touch target around the 4dp handle; the header below is draggable too.
+        alignSelf:      'stretch',
+        alignItems:     'center',
+        justifyContent: 'center',
+        height:         24,
+        marginTop:      -8
     },
     handle: {
         width:          32,

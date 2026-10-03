@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
     Animated,
     BackHandler,
     Easing,
+    PanResponder,
     Platform,
     Pressable,
     StyleSheet,
@@ -20,10 +21,27 @@ const useNativeDriver = Platform.OS !== 'web';
 const EXIT_DURATION = 200;
 const EXIT_EASING   = Easing.bezier(0.3, 0, 0.8, 0.15);
 
+// Drag-to-dismiss: past this distance or flick speed the sheet closes, otherwise it springs back.
+const DISMISS_DISTANCE = 120;
+const DISMISS_VELOCITY = 0.8;
+
+const SheetDragContext = createContext(null);
+
+/**
+ * Area of the sheet (drag handle + header) that can be swiped down to dismiss it. Kept out of the
+ * scrollable body so vertical scrolling and the dismiss gesture never compete.
+ */
+export function SheetDragArea({ children, style }) {
+    const panHandlers = useContext(SheetDragContext);
+
+    return <View style={style} {...(panHandlers || {})}>{children}</View>;
+}
+
 /**
  * Modal bottom sheet (or centered dialog) with M3 Expressive motion: slides/scales in on the
  * default spatial spring and fades the scrim with the effects spring; stays mounted while the
- * exit animation runs so closing is animated too.
+ * exit animation runs so closing is animated too. As a bottom sheet, the content wrapped in
+ * `SheetDragArea` (handle + header) can be swiped down to dismiss.
  *
  * @param {object}   props
  * @param {boolean}  props.visible
@@ -34,11 +52,34 @@ const EXIT_EASING   = Easing.bezier(0.3, 0, 0.8, 0.15);
 export default function AnimatedSheet({ visible, onDismiss, centered = false, style, children }) {
     const { theme }  = useTheme();
     const progress   = useRef(new Animated.Value(0)).current;
+    const dragY      = useRef(new Animated.Value(0)).current;
     const [ mounted, setMounted ] = useState(visible);
+    const dismissRef = useRef(onDismiss);
+    dismissRef.current = onDismiss;
+
+    const panResponder = useMemo(() => PanResponder.create({
+        onMoveShouldSetPanResponder:        (_, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
+        onPanResponderTerminationRequest:   () => false,
+        // Upward drags get a rubber-band resistance; the sheet never lifts off the bottom edge.
+        onPanResponderMove:    (_, g) => dragY.setValue(g.dy > 0 ? g.dy : g.dy / 8),
+        onPanResponderRelease: (_, g) => {
+            if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+                dismissRef.current?.();
+                return;
+            }
+
+            Animated.spring(dragY, { toValue: 0, velocity: g.vy, useNativeDriver, ...theme.motion.spring.fastSpatial }).start();
+        },
+        onPanResponderTerminate: () => {
+            Animated.spring(dragY, { toValue: 0, useNativeDriver, ...theme.motion.spring.fastSpatial }).start();
+        }
+    }), [ theme ]);
 
     useEffect(() => {
         if (visible) {
             setMounted(true);
+            dragY.setValue(0);
             progress.stopAnimation();
             Animated.spring(progress, {
                 toValue: 1,
@@ -78,7 +119,8 @@ export default function AnimatedSheet({ visible, onDismiss, centered = false, st
             transform: [ { scale: progress.interpolate({ inputRange: [ 0, 1 ], outputRange: [ 0.88, 1 ] }) } ]
         }
         : {
-            transform: [ { translateY: progress.interpolate({ inputRange: [ 0, 1 ], outputRange: [ 640, 0 ] }) } ]
+            // Exit continues from wherever the drag left the sheet.
+            transform: [ { translateY: Animated.add(progress.interpolate({ inputRange: [ 0, 1 ], outputRange: [ 640, 0 ] }), dragY) } ]
         };
 
     return (
@@ -94,7 +136,9 @@ export default function AnimatedSheet({ visible, onDismiss, centered = false, st
                     />
                 </Animated.View>
                 <Animated.View style={[ style, surfaceMotion ]} accessibilityViewIsModal>
-                    {children}
+                    <SheetDragContext.Provider value={centered ? null : panResponder.panHandlers}>
+                        {children}
+                    </SheetDragContext.Provider>
                 </Animated.View>
             </View>
         </Portal>
