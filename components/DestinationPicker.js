@@ -1881,10 +1881,13 @@ const styles = StyleSheet.create({
         fontWeight: '700'
     },
     watchRowTitleCentered: {
-        // Not `flex: 0`: on web that means a 0% basis and the label collapses to zero width.
-        flexGrow: 0,
+        // `flex: 0` is what sizes the label to its text on Android, but on web it means a 0% basis
+        // and the label collapses to zero width; and the web form collapses it on Android.
+        ...Platform.select({
+            web:     { flexGrow: 0, flexBasis: 'auto' },
+            default: { flex: 0 }
+        }),
         flexShrink: 1,
-        flexBasis: 'auto',
         textAlign: 'center'
     },
     watchRowStar: {
