@@ -703,6 +703,28 @@ export default function DestinationPicker({ navigation }) {
         }
     }, [ tabletTwoPane, originStation, showManualOriginPicker, destinationList, favoriteDestinations, prioritizedDestinations, tabletDestination ]);
 
+    // Opens the route of a tapped departure reminder (cold or warm start) once stations and schedules are loaded.
+    useEffect(() => {
+        if (!allDestinationsList || !segmentsList || typeof(holidaysList) == 'undefined' || previewMode) { return; }
+
+        const Reminders = require('../includes/Reminders').default;
+
+        return Reminders.onRouteRequested(({ originId, destinationId }) => {
+            const routeOrigin      = allDestinationsList.find(item => String(item.id) === originId);
+            const routeDestination = allDestinationsList.find(item => String(item.id) === destinationId);
+
+            if (!routeOrigin || !routeDestination) { return; }
+            if (navigation.canGoBack()) { navigation.popToTop(); }
+
+            if (tabletTwoPane) {
+                replaceTabletRoute({ origin: routeOrigin, destination: routeDestination });
+                return;
+            }
+
+            navigation.navigate('NextSchedule', { origin: routeOrigin, destination: routeDestination, segmentsList, holidaysList });
+        });
+    }, [ allDestinationsList, segmentsList, holidaysList, tabletTwoPane ]);
+
     const replaceTabletRoute = nextRoute => {
         setOriginStation(nextRoute.origin);
         setOriginDistanceMeters(undefined);

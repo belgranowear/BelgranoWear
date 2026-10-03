@@ -91,13 +91,9 @@ const formatDepartureDelta = departure => {
   return formatDurationUnit(Math.max(1, minutes), 'minute', 'minutes');
 };
 
-const compactReminderStatus = message => {
-  if (message === Lang.t('reminderUnavailableMessage')) { return Lang.t('reminderUnavailableShortMessage'); }
-  if (message === Lang.t('notificationPermissionDeniedMessage')) { return Lang.t('notificationPermissionDeniedShortMessage'); }
-  if (message === Lang.t('reminderSetMessage')) { return Lang.t('reminderSetShortMessage'); }
+const compactReminderStatus = status => status.shortMessage || status.message;
 
-  return message;
-};
+const REMINDER_RESCHEDULE_THRESHOLD_MS = 60 * 1000;
 
 export function NextSchedulePane({ navigation, origin, destination, segmentsList, holidaysList, onReplaceRoute, forcePreviewData = false }) {
     return (
@@ -149,6 +145,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const [ routeStatus,             setRouteStatus             ] = useState();
     const [ reminderStatus,          setReminderStatus          ] = useState();
     const [ isReminderActive,        setIsReminderActive        ] = useState(false);
+    const [ isReminderBusy,          setIsReminderBusy          ] = useState(false);
     const [ isWatchScrollHintDismissed, setIsWatchScrollHintDismissed ] = useState(false);
     const [ watchScrollHintFullScrollCount, setWatchScrollHintFullScrollCount ] = useState(null);
 
@@ -156,9 +153,14 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const scrollHintProgress = useRef(new Animated.Value(0)).current;
     const watchFullScrollRecordLockedRef = useRef(false);
     const fallbackReminderRef = useRef();
+    const reminderBusyRef = useRef(false);
+    const reminderDepartureRef = useRef();
+    const reminderRouteKeyRef = useRef();
 
     const origin      = route.params.origin;
     const destination = route.params.destination;
+
+    reminderRouteKeyRef.current = `${origin.id}:${destination.id}`;
 
     const animateNextTripTimeOpacity = ({ toValue, onFinished = () => {} }) => {
       Animated.timing(nextTripViewOpacity, {
@@ -185,7 +187,15 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     };
 
     const refreshReminderState = async () => {
-      setIsReminderActive(Boolean(await Preferences.getReminderNotificationId(origin, destination)));
+      const routeKey = reminderRouteKeyRef.current;
+      clearForegroundFallbackReminder();
+      reminderDepartureRef.current = undefined;
+      setIsReminderActive(false);
+      setReminderStatus(undefined);
+      const reminder = await Reminders.getActiveReminder({ origin, destination });
+      if (routeKey !== reminderRouteKeyRef.current || reminderBusyRef.current) { return; }
+      reminderDepartureRef.current = reminder ? reminder.departureAt : undefined;
+      setIsReminderActive(Boolean(reminder));
     };
 
     const fetchHFRemainingTimeByStationId = async (originId, isGoingToTerminal) => {
@@ -424,44 +434,129 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       });
     };
 
-    const setForegroundFallbackReminder = () => {
-      const reminderDate = nextTripTime.subtract(5, 'minute');
+    // Web / Expo Go fallback: it only works while this screen stays mounted, and the UI says so.
+    const setForegroundFallbackReminder = (departure = nextTripTime) => {
+      const reminderDate = departure.subtract(5, 'minute');
       const delayMs = reminderDate.diff();
       if (delayMs <= 0) { return false; }
       if (fallbackReminderRef.current) { clearTimeout(fallbackReminderRef.current); }
       fallbackReminderRef.current = setTimeout(() => {
+        fallbackReminderRef.current = undefined;
         Vibration.vibrate([ 250, 125, 250 ]);
       }, delayMs);
       return true;
     };
 
-    const cancelDepartureReminder = async () => {
+    const clearForegroundFallbackReminder = () => {
       if (fallbackReminderRef.current) {
         clearTimeout(fallbackReminderRef.current);
         fallbackReminderRef.current = undefined;
       }
-
-      const result = await Reminders.cancelDepartureReminder({ origin, destination });
-      setIsReminderActive(false);
-      setReminderStatus(result.message);
     };
 
-    const setDepartureReminder = async () => {
+    // Runs one reminder operation at a time; the controls stay disabled meanwhile.
+    const runReminderTask = async task => {
+      if (reminderBusyRef.current) { return; }
+      reminderBusyRef.current = true;
+      setIsReminderBusy(true);
+      try {
+        await task(reminderRouteKeyRef.current);
+      } catch (exception) {
+        console.warn('NextSchedule: reminder task failed:', exception);
+      } finally {
+        reminderBusyRef.current = false;
+        setIsReminderBusy(false);
+      }
+    };
+
+    const markReminderInactive = () => {
+      clearForegroundFallbackReminder();
+      reminderDepartureRef.current = undefined;
+      setIsReminderActive(false);
+    };
+
+    const cancelDepartureReminder = async routeKey => {
+      clearForegroundFallbackReminder();
+      const result = await Reminders.cancelDepartureReminder({ origin, destination });
+      if (routeKey !== reminderRouteKeyRef.current) { return; }
+      markReminderInactive();
+      setReminderStatus(result);
+    };
+
+    const setDepartureReminder = () => runReminderTask(async routeKey => {
       if (isReminderActive) {
-        await cancelDepartureReminder();
+        await cancelDepartureReminder(routeKey);
         return;
       }
 
       if (!nextTripTime) { return; }
-      const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime: nextTripTime });
-      if (!result.ok && result.reason === 'unavailable' && setForegroundFallbackReminder()) {
+      const departureTime = nextTripTime;
+      const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime });
+      if (routeKey !== reminderRouteKeyRef.current) { return; }
+
+      if (!result.ok && result.reason === 'unsupported' && setForegroundFallbackReminder(departureTime)) {
+        reminderDepartureRef.current = departureTime.valueOf();
         setIsReminderActive(true);
-        setReminderStatus(Lang.t('reminderSetMessage'));
+        setReminderStatus({ message: Lang.t('reminderForegroundOnlyMessage'), shortMessage: Lang.t('reminderForegroundOnlyShortMessage') });
         return;
       }
+
+      reminderDepartureRef.current = result.ok ? result.departureAt : undefined;
       setIsReminderActive(result.ok);
-      setReminderStatus(result.message);
-    };
+      setReminderStatus(result);
+    });
+
+    const openReminderSettings = () => { Reminders.openSettings(reminderStatus?.action); };
+
+    // Keeps an active reminder in sync with nextTripTime (live ETA updates, or advancing past the reminded train).
+    useEffect(() => {
+      const reminderDepartureAt = reminderDepartureRef.current;
+
+      if (!nextTripTime || !isReminderActive || isReminderBusy || !Number.isFinite(reminderDepartureAt)) { return; }
+      if (Math.abs(nextTripTime.valueOf() - reminderDepartureAt) < REMINDER_RESCHEDULE_THRESHOLD_MS) { return; }
+
+      const departureTime = nextTripTime;
+
+      runReminderTask(async routeKey => {
+        if (reminderDepartureAt <= Date.now()) {
+          await Reminders.cancelDepartureReminder({ origin, destination });
+          if (routeKey === reminderRouteKeyRef.current) { markReminderInactive(); }
+          return;
+        }
+
+        if (fallbackReminderRef.current) {
+          if (setForegroundFallbackReminder(departureTime)) {
+            reminderDepartureRef.current = departureTime.valueOf();
+            return;
+          }
+
+          markReminderInactive();
+          setReminderStatus({ message: Lang.t('reminderUnavailableMessage'), shortMessage: Lang.t('reminderUnavailableShortMessage') });
+          return;
+        }
+
+        const result = await Reminders.scheduleDepartureReminder({ origin, destination, departureTime, requestPermissions: false });
+        if (routeKey !== reminderRouteKeyRef.current) { return; }
+
+        if (result.ok) {
+          reminderDepartureRef.current = result.departureAt;
+          setReminderStatus(result.action ? result : { message: Lang.t('reminderRescheduledMessage'), shortMessage: Lang.t('reminderRescheduledShortMessage') });
+          return;
+        }
+
+        await Reminders.cancelDepartureReminder({ origin, destination });
+        if (routeKey !== reminderRouteKeyRef.current) { return; }
+        markReminderInactive();
+        setReminderStatus(result);
+      });
+    }, [ nextTripTime, isReminderActive, isReminderBusy ]);
+
+    // On the watch the feedback sits under the switch, so it's only shown briefly.
+    useEffect(() => {
+      if (!watchLayout || !reminderStatus) { return; }
+      const timeout = setTimeout(() => setReminderStatus(undefined), reminderStatus.action ? 8000 : 4000);
+      return () => clearTimeout(timeout);
+    }, [ watchLayout, reminderStatus ]);
 
     useEffect(() => {
       refreshFavoriteState();
@@ -594,16 +689,17 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const reminderButton = tabletActionButton ? (
       <Pressable
         onPress={setDepartureReminder}
+        disabled={isReminderBusy}
         accessibilityRole="button"
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
-        accessibilityState={{ selected: isReminderActive }}
+        accessibilityState={{ selected: isReminderActive, disabled: isReminderBusy, busy: isReminderBusy }}
         style={({ pressed }) => [
           styles.actionButton,
           styles.reminderActionButton,
           styles.tabletReminderButton,
           {
             backgroundColor: theme.paperTheme.colors.secondaryContainer,
-            opacity: pressed ? 0.72 : 1
+            opacity: pressed || isReminderBusy ? 0.72 : 1
           }
         ]}
       >
@@ -630,6 +726,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
         mode={watchLayout && isReminderActive ? 'contained' : 'contained-tonal'}
         icon={reminderButtonIcon}
         onPress={setDepartureReminder}
+        disabled={isReminderBusy}
         compact={watchLayout || phoneActionButtonCompact}
         accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
         style={watchLayout
@@ -645,13 +742,18 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
         {reminderButtonLabel}
       </Button>
     );
-    const isReminderCancellationStatus = reminderStatus === Lang.t('reminderCanceledMessage');
-    const watchReminderFeedback = reminderStatus && !isReminderActive && !isReminderCancellationStatus ? (
-      <View style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft, width: watchReminderButtonWidth } ]}>
+    const watchReminderFeedback = reminderStatus ? (
+      <Pressable
+        onPress={reminderStatus.action ? openReminderSettings : undefined}
+        disabled={!reminderStatus.action}
+        accessibilityRole={reminderStatus.action ? 'button' : 'text'}
+        accessibilityLabel={reminderStatus.action ? `${reminderStatus.message} ${Lang.t('reminderOpenSettingsBtnLabel')}` : reminderStatus.message}
+        style={[ styles.watchReminderFeedback, { backgroundColor: theme.accentSoft, width: watchReminderButtonWidth, marginTop: 6 } ]}
+      >
         <Text numberOfLines={2} style={[ styles.watchReminderFeedbackText, { color: theme.accentStrong } ]}>
-          {compactReminderStatus(reminderStatus)}
+          {reminderStatus.action ? '⚙ ' : ''}{compactReminderStatus(reminderStatus)}
         </Text>
-      </View>
+      </Pressable>
     ) : null;
     const watchReminderSwitch = (
       <View
@@ -678,6 +780,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
         <Switch
           value={isReminderActive}
           onValueChange={setDepartureReminder}
+          disabled={isReminderBusy}
           color={theme.accent}
           accessibilityLabel={isReminderActive ? Lang.t('cancelReminderBtnLabel') : Lang.t('remindMeBtnLabel')}
         />
@@ -934,7 +1037,8 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
             <View style={[ styles.actions, watchLayout ? styles.actionsWatch : undefined ]}>
               {watchLayout ? (
                 <View style={styles.watchReminderButtonFrame}>
-                  {watchReminderFeedback || watchReminderSwitch}
+                  {watchReminderSwitch}
+                  {watchReminderFeedback}
                 </View>
               ) : reminderButton}
             </View>
@@ -952,14 +1056,14 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
 
           {departuresList}
 
-          {reminderStatus ? (
-            watchLayout ? (
-              <WatchScaleItem>
-                <StatusPill tone="accent" style={styles.statusMessage}>{compactReminderStatus(reminderStatus)}</StatusPill>
-              </WatchScaleItem>
-            ) : (
-              <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus}</StatusPill>
-            )
+          {reminderStatus && !watchLayout ? (
+            <StatusPill tone="accent" style={styles.statusMessage}>{reminderStatus.message}</StatusPill>
+          ) : null}
+
+          {reminderStatus?.action && !watchLayout ? (
+            <Button mode="text" icon="cog-outline" compact onPress={openReminderSettings} style={styles.statusMessage}>
+              {Lang.t('reminderOpenSettingsBtnLabel')}
+            </Button>
           ) : null}
 
           {shouldLoopAnimation ? (
