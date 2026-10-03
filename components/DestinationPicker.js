@@ -37,8 +37,18 @@ import Lang        from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import { useTheme } from '../includes/Theme';
 import { getUIPreviewMode, isWatchUIPreview, previewState } from '../includes/UIPreview';
+import { fetchWithTimeout } from '../includes/Network';
+import { nowInArgentina }   from '../includes/Time';
 
 const PROXIMITY_WARNING_METERS = 1200;
+
+const WATCH_FETCH_TIMEOUT_MS              = 6000;
+const CACHE_VERIFICATION_CONCURRENCY      = 3;
+const HOLIDAYS_CACHE_KEY_PATTERN          = /\/holidays_(\d{4})\.json$/;
+const LAST_KNOWN_LOCATION_MAX_AGE_MS      = 5 * 60 * 1000;
+const LAST_KNOWN_LOCATION_ACCURACY_METERS = 1000;
+
+let cacheVerificationInProgress = false;
 
 const formatDistanceKm = meters => (meters / 1000).toFixed(1);
 
@@ -254,6 +264,9 @@ export default function DestinationPicker({ navigation }) {
     const [ favoriteTrips,              setFavoriteTrips              ] = useState([]);
     const [ recentTrips,                setRecentTrips                ] = useState([]);
     const [ tabletDestination,          setTabletDestination          ] = useState();
+    const [ offlineDataFetchedAt,       setOfflineDataFetchedAt       ] = useState();
+
+    const networkTimeoutMs = watchLayout ? WATCH_FETCH_TIMEOUT_MS : undefined;
 
     const destinationList = useMemo(() => {
         if (!allDestinationsList) { return []; }
@@ -325,53 +338,80 @@ export default function DestinationPicker({ navigation }) {
         );
     };
 
-    const verifyCachedResources = async () => {
-        setCurrentOperation( Lang.t('verifyCachedResourcesMessage') + '…' );
-
-        let cacheKeys     = await Cache.keys(),
-            unmatchedKeys = 0;
+    const verifyCachedResource = async url => {
+        let remoteChecksum;
 
         try {
-            while (cacheKeys.length > 0) {
-                let url = cacheKeys[ Object.keys(cacheKeys)[0] ];
+            let remoteChecksumURL = (
+                process.env.REMOTE_BASE_URL + '/' +
+                (new URL(url)).pathname
+                    .replace(new RegExp('^\/'),    '')
+                    .replace(new RegExp('.json$'), '') + '_sum'
+            );
 
-                if (url.indexOf('http') !== 0) {
-                    cacheKeys.shift();
+            remoteChecksum = (await (await fetchWithTimeout(remoteChecksumURL, {}, networkTimeoutMs)).text()).trim().toLowerCase();
+        } catch (exception) {
+            // A missing or unreachable checksum means "unknown", keep the cached copy.
+            console.debug(`verifyCachedResource: checksum unavailable for "${url}":`, exception);
+            return;
+        }
+
+        if (!/^[0-9a-f]{32}$/.test(remoteChecksum)) { return; }
+
+        let file = await Cache.get(url);
+
+        if (file === null || MD5( JSON.stringify(file) ).toString() === remoteChecksum) { return; }
+
+        try {
+            let prefetchResponse = await fetchWithTimeout(url, {}, networkTimeoutMs),
+                prefetchJSON     = await prefetchResponse.json();
+
+            await Cache.set(url, prefetchJSON);
+        } catch (prefetchException) {
+            console.warn(`verifyCachedResource: prefetch failed for "${url}", keeping cached copy:`, prefetchException);
+        }
+    };
+
+    const verifyCachedResources = async freshSince => {
+        if (cacheVerificationInProgress) { return; }
+        cacheVerificationInProgress = true;
+
+        try {
+            let oldestHolidaysYear = nowInArgentina().year() - 1,
+                cacheKeys          = (await Cache.keys()).filter(key => key.indexOf('http') === 0),
+                pendingKeys        = [];
+
+            for (const url of cacheKeys) {
+                const holidaysMatch = url.match(HOLIDAYS_CACHE_KEY_PATTERN);
+
+                if (holidaysMatch && parseInt(holidaysMatch[1]) < oldestHolidaysYear) {
+                    await Cache.remove(url);
                     continue;
                 }
 
-                let remoteChecksumURL = (
-                    process.env.REMOTE_BASE_URL + '/' +
-                    (new URL(url)).pathname
-                        .replace(new RegExp('^\/'),    '')
-                        .replace(new RegExp('.json$'), '') + '_sum'
-                ),  remoteChecksum = await (await fetch(remoteChecksumURL)).text();
+                // Skip entries already refreshed from the network during this startup.
+                if ((await Cache.getFetchedAt(url) ?? 0) >= freshSince) { continue; }
 
-                let file     = await Cache.get(url),
-                    checksum = MD5( JSON.stringify(file) ).toString();
+                pendingKeys.push(url);
+            }
 
-                if (checksum !== remoteChecksum) {
+            const verifyPendingKeys = async () => {
+                while (pendingKeys.length > 0) {
+                    const url = pendingKeys.shift();
+
                     try {
-                        let prefetchResponse = await fetch(url),
-                            prefetchJSON     = await prefetchResponse.json();
-
-                        Cache.set(url, prefetchJSON);
-                    } catch (prefetchException) {
-                        console.warn(`verifyCachedResources: prefetch failed for "${url}":`, prefetchException);
-                    }
-
-                    unmatchedKeys++;
-
-                    if (unmatchedKeys >= process.env.CACHE_MAX_UNMATCHED_KEYS_FOR_CLEAR) {
-                        await Cache.clear();
-                        return;
+                        await verifyCachedResource(url);
+                    } catch (exception) {
+                        console.warn(`verifyCachedResources: couldn't verify "${url}":`, exception);
                     }
                 }
+            };
 
-                cacheKeys.shift();
-            }
+            await Promise.all(Array.from({ length: CACHE_VERIFICATION_CONCURRENCY }, verifyPendingKeys));
         } catch (exception) {
             console.warn('verifyCachedResources: couldn\'t query:', exception);
+        } finally {
+            cacheVerificationInProgress = false;
         }
     };
 
@@ -387,7 +427,7 @@ export default function DestinationPicker({ navigation }) {
             if ([ 'station', 'halt' ].indexOf(railway) === -1 && [ 'station', 'stop_area' ].indexOf(publicTransport) === -1) { return; }
 
             newTrainStationsMap.push({
-                name:      station.tags.name.replace(/ \(.*'/, ''),
+                name:      station.tags.name.replace(/ \(.*\)/, ''),
                 shortName: station.tags.short_name,
                 latitude:  (station.lat ?? station.center.lat),
                 longitude: (station.lon ?? station.center.lon)
@@ -397,40 +437,96 @@ export default function DestinationPicker({ navigation }) {
         setTrainStationsMap(newTrainStationsMap);
     };
 
-    const fetchJSONWithCache = async ({ url, onLoad, errorMessage, operationMessage }) => {
+    // Resolves true when the resource came from the network, false when it fell back to cache (or failed).
+    const fetchJSONWithCache = async ({ url, onLoad, errorMessage, operationMessage, onUnavailable }) => {
         setCurrentOperation( operationMessage + '…' );
 
         try {
-            const response = await fetch(url);
+            const response = await fetchWithTimeout(url, {}, networkTimeoutMs);
             const json     = await response.json();
 
             onLoad(json);
-            Cache.set(url, json);
+            await Cache.set(url, json);
+            return true;
         } catch (exception) {
-            let cachedData = await Cache.get(url);
-
-            if (cachedData) {
-                setNetworkErrorDetected(true);
-                onLoad(cachedData);
-            } else {
-                console.error(`fetchJSONWithCache: couldn't query ${url}:`, exception);
-                crash(errorMessage);
-            }
+            console.warn(`fetchJSONWithCache: couldn't query ${url}:`, exception);
         }
+
+        try {
+            const cachedData = await Cache.get(url);
+
+            if (cachedData !== null) {
+                onLoad(cachedData);
+                setNetworkErrorDetected(true);
+
+                const fetchedAt = await Cache.getFetchedAt(url);
+                if (fetchedAt !== null) {
+                    setOfflineDataFetchedAt(previous => previous ? Math.min(previous, fetchedAt) : fetchedAt);
+                }
+
+                return false;
+            }
+        } catch (cacheException) {
+            console.error(`fetchJSONWithCache: couldn't load cached ${url}:`, cacheException);
+        }
+
+        if (onUnavailable) {
+            await onUnavailable();
+            return false;
+        }
+
+        console.error(`fetchJSONWithCache: no data available for ${url}`);
+        crash(errorMessage);
+        return false;
+    };
+
+    const showManualOriginPickerFallback = (reason = Lang.t('manualOriginFallbackMessage')) => {
+        setManualOriginReason(reason);
+        setShowManualOriginPicker(true);
     };
 
     const fetchTrainStationsMap = async () => await fetchJSONWithCache({
         url:              process.env.REMOTE_BASE_URL + '/train_stations.json',
         onLoad:           loadTrainStationsMap,
         errorMessage:     Lang.t('fetchTrainStationsMapError'),
-        operationMessage: Lang.t('fetchingTrainStationsMapMessage')
+        operationMessage: Lang.t('fetchingTrainStationsMapMessage'),
+        // Without the map GPS detection can't work; detectOriginStation goes to the manual picker.
+        onUnavailable:    () => {
+            setNetworkErrorDetected(true);
+            setTrainStationsMap(null);
+        }
     });
 
+    const loadFallbackHolidaysList = async () => {
+        setNetworkErrorDetected(true);
+
+        try {
+            const holidaysKeys = (await Cache.keys())
+                .filter(key => key.indexOf(process.env.REMOTE_BASE_URL) === 0 && HOLIDAYS_CACHE_KEY_PATTERN.test(key))
+                .sort((a, b) => parseInt(b.match(HOLIDAYS_CACHE_KEY_PATTERN)[1]) - parseInt(a.match(HOLIDAYS_CACHE_KEY_PATTERN)[1]));
+
+            for (const key of holidaysKeys) {
+                const cachedHolidays = await Cache.get(key);
+
+                if (Array.isArray(cachedHolidays)) {
+                    console.warn(`loadFallbackHolidaysList: using cached "${key}"`);
+                    setHolidaysList(cachedHolidays);
+                    return;
+                }
+            }
+        } catch (exception) {
+            console.warn('loadFallbackHolidaysList: couldn\'t read cached holidays:', exception);
+        }
+
+        setHolidaysList([]);
+    };
+
     const fetchHolidaysList = async () => await fetchJSONWithCache({
-        url:              process.env.REMOTE_BASE_URL + `/holidays_${(new Date().getFullYear())}.json`,
+        url:              process.env.REMOTE_BASE_URL + `/holidays_${nowInArgentina().year()}.json`,
         onLoad:           setHolidaysList,
         errorMessage:     Lang.t('fetchHolidaysListError'),
-        operationMessage: Lang.t('fetchingHolidaysListMessage')
+        operationMessage: Lang.t('fetchingHolidaysListMessage'),
+        onUnavailable:    loadFallbackHolidaysList
     });
 
     const loadAvailabilityOptions = json => {
@@ -470,7 +566,11 @@ export default function DestinationPicker({ navigation }) {
         const timeoutHandle = setTimeout(() => reject(new Error(`Couldn't get GPS location after ${timeout / 1000} seconds.`)), timeout);
 
         try {
-            const location = await Location.getLastKnownPositionAsync({ accuracy: Location.Accuracy.Low });
+            // Resolves null when the last fix is older or less accurate than allowed.
+            const location = await Location.getLastKnownPositionAsync({
+                maxAge:           LAST_KNOWN_LOCATION_MAX_AGE_MS,
+                requiredAccuracy: LAST_KNOWN_LOCATION_ACCURACY_METERS
+            });
             clearTimeout(timeoutHandle);
             resolve(location);
         } catch (exception) {
@@ -482,7 +582,15 @@ export default function DestinationPicker({ navigation }) {
     const areLocationPermissionsGranted = async () => {
         if (Platform.OS === 'android' && Platform.Version < 23) { return true; }
 
-        let { status } = await Location.requestForegroundPermissionsAsync();
+        let status;
+
+        try {
+            ({ status } = await Location.requestForegroundPermissionsAsync());
+        } catch (exception) {
+            console.error('areLocationPermissionsGranted:', exception);
+            showManualOriginPickerFallback();
+            return false;
+        }
 
         if (status !== 'granted') {
           setManualOriginReason( Lang.t('locationAccessDeniedMessage') );
@@ -520,6 +628,11 @@ export default function DestinationPicker({ navigation }) {
 
     const detectOriginStation = async () => {
         setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
+
+        if (!Array.isArray(trainStationsMap) || trainStationsMap.length === 0) {
+            showManualOriginPickerFallback();
+            return;
+        }
 
         if (!await areLocationPermissionsGranted()) { return; }
 
@@ -642,9 +755,30 @@ export default function DestinationPicker({ navigation }) {
     };
 
     const bootstrap = async () => {
-        await refreshPreferences();
-        await verifyCachedResources();
-        await Promise.all([ fetchTrainStationsMap(), fetchHolidaysList(), fetchAvailabilityOptions() ]);
+        const bootstrapStartedAt = Date.now();
+
+        setNetworkErrorDetected(false);
+        setOfflineDataFetchedAt(undefined);
+
+        try {
+            await refreshPreferences();
+        } catch (exception) {
+            console.warn('bootstrap: couldn\'t load preferences:', exception);
+        }
+
+        try {
+            const fetchedFromNetwork = await Promise.all([ fetchTrainStationsMap(), fetchHolidaysList(), fetchAvailabilityOptions() ]);
+
+            if (fetchedFromNetwork.every(Boolean)) { setNetworkErrorDetected(false); }
+
+            // Checksums are verified in the background once the app is usable, only if the network answered.
+            if (fetchedFromNetwork.some(Boolean)) {
+                verifyCachedResources(bootstrapStartedAt).catch(exception => console.warn('bootstrap: verifyCachedResources:', exception));
+            }
+        } catch (exception) {
+            console.error('bootstrap:', exception);
+            crash(Lang.t('fetchAvailabilityOptionsError'));
+        }
     };
 
     useEffect(() => {
@@ -680,7 +814,11 @@ export default function DestinationPicker({ navigation }) {
 
     useEffect(() => {
         if (typeof(trainStationsMap) == 'undefined' || typeof(allDestinationsList) == 'undefined' || typeof(originStation) != 'undefined' || showManualOriginPicker || previewMode) { return; }
-        detectOriginStation();
+
+        detectOriginStation().catch(exception => {
+            console.error('detectOriginStation: unexpected failure:', exception);
+            showManualOriginPickerFallback();
+        });
     }, [ trainStationsMap, allDestinationsList, showManualOriginPicker ]);
 
     useEffect(() => {
