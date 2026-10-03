@@ -36,5 +36,7 @@ and read by every native surface (widgets, tile, complications, ongoing notifica
 - `source`: `live` | `scheduled` | `offline` (same values as `SOURCE` in `includes/Schedule.js`).
 - `arrival` may be `null` for legacy rows without arrival time.
 - `departures` holds up to 5 upcoming trains, sorted; surfaces drop entries already in the past.
-- `tracking` mirrors `includes/LiveTrip.js`: `active` while "Seguir viaje" is on.
+- `tracking` mirrors `includes/LiveTrip.js`: `active` while "Seguir viaje" is on. Native owns it: every publish overwrites it from the stored tracking payload, so a stale JS copy cannot revive a trip stopped from the notification.
+- `labels` (optional): localized widget strings filled by JS — `nextTrain, live, scheduled, offline, inMinutes ("en {n} min"), now, agoSeconds, agoMinutes, openApp, noMoreTrains, separator, locale`. Native replaces `{n}`; readers fall back to Spanish when missing.
+- Every write broadcasts `<applicationId>.TRIP_SNAPSHOT_UPDATED` (`setPackage`, extra `trackingActive: Boolean`).
 - Readers must tolerate a missing file/key (show "Abrí la app") and unknown extra fields.
