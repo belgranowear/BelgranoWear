@@ -6,7 +6,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   BackHandler,
-  FlatList,
   Platform,
   Pressable,
   ScrollView,
@@ -25,13 +24,15 @@ import { MD5 } from 'crypto-js';
 import {
   ActivityIndicator,
   Button,
-  List,
-  Surface,
+  Icon,
+  IconButton,
+  Searchbar,
   Text
 } from 'react-native-paper';
 
 import OfflineModeHint from './OfflineModeHint';
 import { NextSchedulePane } from './NextSchedule';
+import RoutineCard from './RoutineCard';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 
 import Cache       from '../includes/Cache';
@@ -39,6 +40,7 @@ import Lang        from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import { useTheme } from '../includes/Theme';
 import { getUIPreviewMode, isWatchUIPreview, previewState } from '../includes/UIPreview';
+import { isRoundScreen } from '../includes/Device';
 import { fetchWithTimeout } from '../includes/Network';
 import { nowInArgentina }   from '../includes/Time';
 
@@ -59,178 +61,344 @@ const quickTripTitle = trip => trip.isCurrentOrigin
     ? trip.destination.title
     : `${trip.origin.title} → ${trip.destination.title}`;
 
-function SettingsButton({ navigation }) {
+// Lowercase, accent-free text used to filter stations from the search field.
+const normalizeSearchText = value => normalizeSpecialCharacters(String(value || '').toLowerCase())
+    .replace(/[.,()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const filterStations = (stations, query) => {
+    const needle = normalizeSearchText(query);
+
+    if (!needle) { return stations; }
+
+    return stations.filter(item => normalizeSearchText(item.title).indexOf(needle) > -1);
+};
+
+const quickTripAccessibilityLabel = (trip, kind) => Lang.t(kind === 'favorite' ? 'pickerFavoriteTripA11yLabel' : 'pickerRecentTripA11yLabel')
+    .replace('%s', `${trip.origin.title} ${Lang.t('to')} ${trip.destination.title}`);
+
+function SettingsButton({ navigation, compact = false }) {
+    const { theme } = useTheme();
+    const size      = compact ? 44 : 48;
+
+    return (
+        <IconButton
+            icon="cog"
+            size={compact ? 20 : 24}
+            mode="contained-tonal"
+            containerColor={theme.roles.surfaceContainerHigh}
+            iconColor={theme.paperTheme.colors.onSurfaceVariant}
+            onPress={() => navigation.navigate('Settings')}
+            accessibilityLabel={Lang.t('settingsButtonLabel')}
+            style={[ styles.settingsButton, { width: size, height: size, borderRadius: size / 2 } ]}
+        />
+    );
+}
+
+// Single origin control for every layout: a compact "Desde · <station> · Cambiar" bar (phone/tablet),
+// an inline one-liner for short heights (`dense`) and a centered pill on the watch.
+function OriginBar({ station, onChange, navigation, distanceMeters, isOffline, showMaterialYou, variant = 'default', round = false }) {
+    const { theme } = useTheme();
+    const roles     = theme.roles;
+    const title     = station?.title || '';
+    const label     = Lang.t('pickerOriginA11yLabel').replace('%s', title);
+
+    const hasDistanceWarning = distanceMeters > PROXIMITY_WARNING_METERS;
+    const extras = (hasDistanceWarning || isOffline || showMaterialYou) ? (
+        <View style={[ styles.originExtras, variant === 'watch' ? styles.originExtrasWatch : undefined ]}>
+            {hasDistanceWarning ? (
+                <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(distanceMeters))}</StatusPill>
+            ) : null}
+            <OfflineModeHint navigation={navigation} isOffline={isOffline} />
+            {showMaterialYou ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
+        </View>
+    ) : null;
+
+    if (variant === 'watch') {
+        return (
+            <View style={styles.originWatchWrap}>
+                <Pressable
+                    onPress={onChange}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    style={({ pressed }) => [
+                        styles.originWatch,
+                        round ? styles.originWatchRound : undefined,
+                        { backgroundColor: pressed ? roles.surfaceContainerHighest : roles.surfaceContainerHigh, borderRadius: theme.shape.full }
+                    ]}
+                >
+                    <Text numberOfLines={1} style={[ styles.originWatchLabel, { color: theme.textMuted } ]}>
+                        {Lang.t('fromStationLabel')}
+                    </Text>
+                    <View style={styles.originWatchTitleRow}>
+                        <Icon source="map-marker" size={14} color={theme.textMuted} />
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[ styles.originWatchTitle, { color: theme.text } ]}>
+                            {title}
+                        </Text>
+                    </View>
+                </Pressable>
+                {extras}
+            </View>
+        );
+    }
+
+    const dense = variant === 'dense';
+
+    return (
+        <View style={dense ? styles.originDenseWrap : styles.originWrap}>
+            <View
+                style={[
+                    styles.originBar,
+                    dense ? styles.originBarDense : undefined,
+                    { backgroundColor: roles.surfaceContainerHigh, borderRadius: theme.shape.full }
+                ]}
+            >
+                <View style={[ styles.originAvatar, dense ? styles.originAvatarDense : undefined, { backgroundColor: roles.primaryContainer } ]}>
+                    <Icon source="map-marker" size={dense ? 18 : 22} color={roles.onPrimaryContainer} />
+                </View>
+                {dense ? (
+                    <Text numberOfLines={1} style={styles.originDenseText} accessibilityLabel={label}>
+                        <Text variant="labelLarge" style={{ color: theme.textMuted }}>{Lang.t('fromStationLabel')} · </Text>
+                        <Text variant="titleSmall" style={[ styles.originTitle, theme.type.emphasized.title ]}>{title}</Text>
+                    </Text>
+                ) : (
+                    <View style={styles.originText}>
+                        <Text variant="labelMedium" style={{ color: theme.textMuted }}>{Lang.t('fromStationLabel')}</Text>
+                        <Text variant="titleMedium" numberOfLines={1} style={[ styles.originTitle, theme.type.emphasized.title ]}>{title}</Text>
+                    </View>
+                )}
+                <Button
+                    mode="contained-tonal"
+                    compact
+                    onPress={onChange}
+                    accessibilityLabel={label}
+                    style={[ styles.originChangeButton, { borderRadius: theme.shape.full } ]}
+                    contentStyle={dense ? styles.originChangeContentDense : styles.originChangeContent}
+                >
+                    {Lang.t('pickerChangeOriginShortLabel')}
+                </Button>
+            </View>
+            {extras}
+        </View>
+    );
+}
+
+function SectionTitle({ title, icon, compact = false }) {
     const { theme } = useTheme();
 
     return (
+        <View style={[ styles.sectionTitleRow, compact ? styles.sectionTitleRowCompact : undefined ]}>
+            {icon ? <Icon source={icon} size={18} color={theme.textMuted} /> : null}
+            <Text variant="titleMedium" accessibilityRole="header" style={[ styles.sectionTitle, theme.type.emphasized.title ]}>{title}</Text>
+        </View>
+    );
+}
+
+function InlineEmptyHint({ icon, text }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={[ styles.inlineEmpty, { backgroundColor: theme.roles.surfaceContainerLow, borderColor: theme.roles.outlineVariant, borderRadius: theme.shape.lg } ]}>
+            <Icon source={icon} size={20} color={theme.textMuted} />
+            <Text variant="bodyMedium" style={[ styles.inlineEmptyText, { color: theme.textMuted } ]}>{text}</Text>
+        </View>
+    );
+}
+
+// Favorite (star) and recent (clock) shortcuts shown as horizontal chips/cards on phone and tablet.
+function QuickTripChip({ trip, kind, onPress }) {
+    const { theme } = useTheme();
+    const roles     = theme.roles;
+    const favorite  = kind === 'favorite';
+
+    return (
         <Pressable
-            onPress={() => navigation.navigate('Settings')}
+            onPress={onPress}
             accessibilityRole="button"
-            accessibilityLabel={Lang.t('settingsButtonLabel')}
-            hitSlop={8}
+            accessibilityLabel={quickTripAccessibilityLabel(trip, kind)}
             style={({ pressed }) => [
-                styles.settingsButton,
+                favorite ? styles.favoriteChip : styles.recentChip,
                 {
-                    backgroundColor: theme.accentSoft,
-                    opacity: pressed ? 0.72 : 1
+                    backgroundColor: pressed ? roles.surfaceContainerHighest : roles.surfaceContainerHigh,
+                    borderRadius: favorite ? theme.shape.lg : theme.shape.full
                 }
             ]}
         >
-            <Text style={[ styles.settingsButtonIcon, { color: theme.accentStrong } ]}>⚙</Text>
+            {favorite ? (
+                <>
+                    <View style={styles.favoriteChipIcons}>
+                        <Icon source="train" size={22} color={theme.textMuted} />
+                        <Icon source="star" size={20} color={roles.primary} />
+                    </View>
+                    <Text variant="labelLarge" numberOfLines={2} style={styles.quickChipTitle}>{quickTripTitle(trip)}</Text>
+                </>
+            ) : (
+                <>
+                    <Icon source="clock-outline" size={20} color={theme.textMuted} />
+                    <Text variant="labelLarge" numberOfLines={2} style={[ styles.quickChipTitle, styles.recentChipTitle ]}>{quickTripTitle(trip)}</Text>
+                </>
+            )}
         </Pressable>
     );
 }
 
-function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, compact = false, manualOrigin = false, selected = false }) {
+// Dense M3 list row (52 dp): leading icon, title, trailing star toggle or chevron. Selection is tonal.
+function StationRow({ item, onPress, onFavoritePress, isFavorite, accessibilityHint, selected = false, showDivider = false, leadingIcon = 'train', style }) {
     const { theme } = useTheme();
-
-    if (compact) {
-        return (
-            <Surface
-                mode="flat"
-                elevation={0}
-                style={[
-                    styles.stationSurface,
-                    styles.stationSurfaceWatch,
-                    manualOrigin ? styles.stationSurfaceManualWatch : undefined,
-                    { backgroundColor: theme.paperTheme.colors.surfaceVariant }
-                ]}
-            >
-                <Pressable
-                    onPress={onPress}
-                    accessibilityRole="button"
-                    accessibilityLabel={item.title}
-                    accessibilityHint={accessibilityHint}
-                    style={[ styles.stationRowPressableWatch, manualOrigin ? styles.stationRowPressableManualWatch : undefined ]}
-                >
-                    <Text
-                        numberOfLines={manualOrigin ? 1 : 2}
-                        adjustsFontSizeToFit={manualOrigin}
-                        minimumFontScale={0.72}
-                        style={[ styles.stationTitleWatch, manualOrigin ? styles.stationTitleManualWatch : undefined ]}
-                    >
-                        {item.title}
-                    </Text>
-                </Pressable>
-                {onFavoritePress ? (
-                    <Pressable
-                        accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isFavorite }}
-                        onPress={event => {
-                            event?.stopPropagation?.();
-                            onFavoritePress();
-                        }}
-                        hitSlop={8}
-                        style={[
-                            styles.stationStarFloating,
-                            {
-                                backgroundColor: isFavorite ? theme.accentSoft : 'rgba(255, 255, 255, 0.24)'
-                            }
-                        ]}
-                    >
-                        <Text style={[ styles.stationStarText, { color: isFavorite ? theme.accentStrong : theme.paperTheme.colors.onSurfaceVariant, opacity: isFavorite ? 1 : 0.72 } ]}>
-                            {isFavorite ? '★' : '☆'}
-                        </Text>
-                    </Pressable>
-                ) : null}
-            </Surface>
-        );
-    }
+    const roles     = theme.roles;
+    const textColor = selected ? roles.onSecondaryContainer : theme.text;
+    const iconColor = selected ? roles.onSecondaryContainer : theme.textMuted;
 
     return (
-        <Surface
-            mode="flat"
-            elevation={1}
-            style={[
-                styles.stationSurface,
-                { backgroundColor: selected ? theme.accentSoft : theme.paperTheme.colors.surfaceVariant }
-            ]}
-        >
-            <View style={styles.stationRow}>
+        <View style={[ styles.stationRowWrap, style ]}>
+            <View style={[ styles.stationRow, { backgroundColor: selected ? roles.secondaryContainer : 'transparent', borderRadius: theme.shape.full } ]}>
                 <Pressable
                     onPress={onPress}
                     accessibilityRole="button"
                     accessibilityLabel={item.title}
                     accessibilityHint={accessibilityHint}
+                    accessibilityState={{ selected }}
                     style={({ pressed }) => [
                         styles.stationRowMain,
-                        { opacity: pressed ? 0.72 : 1 }
+                        { borderRadius: theme.shape.full },
+                        pressed && !selected ? { backgroundColor: roles.surfaceContainerHigh } : undefined
                     ]}
                 >
-                    <Text style={[ styles.stationRowIcon, { color: theme.paperTheme.colors.onSurfaceVariant } ]}>🚆</Text>
-                    <Text numberOfLines={2} style={styles.stationTitle}>{item.title}</Text>
+                    <Icon source={leadingIcon} size={22} color={iconColor} />
+                    <Text variant="bodyLarge" numberOfLines={1} style={[ styles.stationTitle, { color: textColor }, selected ? theme.type.emphasized.title : undefined ]}>
+                        {item.title}
+                    </Text>
+                    {!onFavoritePress ? <Icon source="chevron-right" size={22} color={iconColor} /> : null}
                 </Pressable>
                 {onFavoritePress ? (
                     <Pressable
-                        accessibilityLabel={isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isFavorite }}
                         onPress={onFavoritePress}
-                        hitSlop={8}
-                        style={({ pressed }) => [
-                            styles.stationRowSideAction,
-                            { opacity: pressed ? 0.72 : 1 }
-                        ]}
-                    >
-                        <Text style={[ styles.stationRowSideActionText, { color: isFavorite ? theme.accentStrong : theme.paperTheme.colors.onSurfaceVariant } ]}>
-                            {isFavorite ? '★' : '☆'}
-                        </Text>
-                    </Pressable>
-                ) : (
-                    <Pressable
-                        onPress={onPress}
                         accessibilityRole="button"
-                        accessibilityLabel={item.title}
-                        accessibilityHint={accessibilityHint}
-                        hitSlop={8}
+                        accessibilityLabel={`${isFavorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}: ${item.title}`}
+                        accessibilityState={{ checked: isFavorite }}
+                        hitSlop={4}
                         style={({ pressed }) => [
-                            styles.stationRowSideAction,
-                            { opacity: pressed ? 0.72 : 1 }
+                            styles.stationStar,
+                            pressed ? { backgroundColor: roles.surfaceContainerHighest } : undefined
                         ]}
                     >
-                        <Text style={[ styles.stationRowSideActionText, { color: theme.paperTheme.colors.onSurfaceVariant } ]}>›</Text>
+                        <Icon source={isFavorite ? 'star' : 'star-outline'} size={22} color={isFavorite ? roles.primary : iconColor} />
                     </Pressable>
-                )}
+                ) : null}
             </View>
-        </Surface>
+            {showDivider ? <View style={[ styles.stationDivider, { backgroundColor: roles.outlineVariant } ]} /> : null}
+        </View>
     );
 }
 
-function QuickRouteCard({ trip, label, onPress, compact = false }) {
-    const { theme } = useTheme();
-
-    if (compact) {
-        return (
-            <Surface mode="flat" elevation={0} style={[ styles.quickRouteCardWatch, { backgroundColor: theme.accentSoft } ]}>
-                <Pressable
-                    onPress={onPress}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${label}: ${trip.origin.title} ${Lang.t('to')} ${trip.destination.title}`}
-                    style={styles.quickRoutePressableWatch}
-                >
-                    <Text numberOfLines={1} style={[ styles.quickRouteLabelWatch, { color: theme.accentStrong } ]}>{label}</Text>
-                    <Text numberOfLines={2} style={[ styles.quickRouteTitleWatch, { color: theme.accentStrong } ]}>{quickTripTitle(trip)}</Text>
-                </Pressable>
-            </Surface>
-        );
+// Rows rendered as a single list, or as a grid when the screen is short (phone landscape).
+function StationList({ items, renderRow, columns = 1, emptyText }) {
+    if (items.length === 0 && emptyText) {
+        return <InlineEmptyHint icon="magnify" text={emptyText} />;
     }
 
+    const columnWidth = `${100 / columns}%`;
+
     return (
-        <Surface mode="flat" elevation={1} style={[ styles.quickRouteCard, { backgroundColor: theme.paperTheme.colors.surfaceVariant } ]}>
-            <List.Item
-                title={quickTripTitle(trip)}
-                description={label}
-                titleNumberOfLines={2}
-                left={props => <List.Icon {...props} icon="ray-start-arrow" />}
-                onPress={onPress}
-                accessibilityRole="button"
-                accessibilityLabel={`${label}: ${trip.origin.title} ${Lang.t('to')} ${trip.destination.title}`}
-                style={styles.quickRouteItem}
-            />
-        </Surface>
+        <View style={columns > 1 ? styles.stationGrid : undefined}>
+            {items.map((item, index) => renderRow({
+                item,
+                showDivider: columns === 1 ? index < items.length - 1 : index < items.length - columns,
+                style:       columns > 1 ? { width: columnWidth } : undefined
+            }))}
+        </View>
     );
 }
+
+// Watch row: big (≥ 52 dp) pill, narrower on round screens so the bezel never clips it.
+// Only a favorite star uses the primary (red) color.
+function WatchRow({ title, leadingIcon, onPress, accessibilityLabel, accessibilityHint, star, onStarPress, starLabel, round = false, centered = false }) {
+    const { theme } = useTheme();
+    const roles     = theme.roles;
+
+    return (
+        <View style={[ styles.watchRow, round ? styles.watchRowRound : undefined, { backgroundColor: roles.surfaceContainerHigh, borderRadius: theme.shape.full } ]}>
+            <Pressable
+                onPress={onPress}
+                accessibilityRole="button"
+                accessibilityLabel={accessibilityLabel || title}
+                accessibilityHint={accessibilityHint}
+                style={({ pressed }) => [
+                    styles.watchRowMain,
+                    centered ? styles.watchRowMainCentered : undefined,
+                    !star ? styles.watchRowMainNoStar : undefined,
+                    { borderRadius: theme.shape.full },
+                    pressed ? { backgroundColor: roles.surfaceContainerHighest } : undefined
+                ]}
+            >
+                {leadingIcon ? <Icon source={leadingIcon} size={18} color={theme.textMuted} /> : null}
+                <Text
+                    numberOfLines={2}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.78}
+                    style={[ styles.watchRowTitle, centered ? styles.watchRowTitleCentered : undefined, { color: theme.text } ]}
+                >
+                    {title}
+                </Text>
+                {star && !onStarPress ? (
+                    <Icon source={star === 'on' ? 'star' : 'star-outline'} size={20} color={star === 'on' ? roles.primary : theme.textMuted} />
+                ) : null}
+            </Pressable>
+            {star && onStarPress ? (
+                <Pressable
+                    onPress={onStarPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={starLabel}
+                    accessibilityState={{ checked: star === 'on' }}
+                    style={({ pressed }) => [
+                        styles.watchRowStar,
+                        pressed ? { backgroundColor: roles.surfaceContainerHighest } : undefined
+                    ]}
+                >
+                    <Icon source={star === 'on' ? 'star' : 'star-outline'} size={22} color={star === 'on' ? roles.primary : theme.textMuted} />
+                </Pressable>
+            ) : null}
+        </View>
+    );
+}
+
+function WatchSectionLabel({ title }) {
+    const { theme } = useTheme();
+
+    return (
+        <Text accessibilityRole="header" numberOfLines={1} style={[ styles.watchSectionLabel, { color: theme.textMuted } ]}>{title}</Text>
+    );
+}
+
+// Tablet/desktop detail pane before a destination is chosen.
+function DetailEmptyState({ title, message, shortcuts }) {
+    const { theme } = useTheme();
+    const roles     = theme.roles;
+
+    return (
+        <ScrollView style={styles.fill} contentContainerStyle={styles.detailEmptyContent}>
+            <View style={[ styles.detailEmptyCard, { backgroundColor: roles.surfaceContainerLow, borderRadius: theme.shape.xl } ]}>
+                <View style={[ styles.detailEmptyIcon, { backgroundColor: roles.secondaryContainer } ]}>
+                    <Icon source="train" size={40} color={roles.onSecondaryContainer} />
+                </View>
+                <Text variant="headlineSmall" accessibilityRole="header" style={[ styles.centerText, theme.type.emphasized.headline ]}>{title}</Text>
+                {message ? <Text variant="bodyMedium" style={[ styles.centerText, { color: theme.textMuted } ]}>{message}</Text> : null}
+                {shortcuts && shortcuts.length > 0 ? (
+                    <View style={styles.detailEmptyShortcuts}>
+                        <Text variant="labelLarge" style={[ styles.centerText, { color: theme.textMuted } ]}>{Lang.t('pickerQuickAccessTitle')}</Text>
+                        <View style={styles.detailEmptyShortcutList}>
+                            {shortcuts.map(({ trip, kind, onPress }) => (
+                                <QuickTripChip key={trip.id} trip={trip} kind={kind} onPress={onPress} />
+                            ))}
+                        </View>
+                    </View>
+                ) : null}
+            </View>
+        </ScrollView>
+    );
+}
+
 
 function LoadingState({ operation }) {
     const { theme } = useTheme();
@@ -251,7 +419,13 @@ export default function DestinationPicker({ navigation }) {
     const previewMode = getUIPreviewMode();
     const watchLayout = responsive.isWatch || isWatchUIPreview();
     const tabletTwoPane = responsive.isTwoPane && !watchLayout;
-    const watchListEndPadding = watchLayout ? Math.round(responsive.shortestSide * 0.2) : 0;
+    const watchListEndPadding = watchLayout ? Math.round(responsive.shortestSide * 0.3) : 0;
+    const watchRound          = watchLayout && isRoundScreen({ width: responsive.width, height: responsive.height, watch: true });
+    // Keeps the "Desde" chip below the round bezel's narrow top; the first list row lands near the center.
+    const watchTopPadding     = watchLayout ? Math.round(responsive.shortestSide * (watchRound ? 0.1 : 0.03)) : 0;
+    // `isShortHeight` comes from ui.js once the layout agent lands it; until then derive it here (phone landscape).
+    const isShortHeight       = !watchLayout && (typeof(responsive.isShortHeight) === 'boolean' ? responsive.isShortHeight : responsive.height <= 480);
+    const stationColumns      = isShortHeight && !tabletTwoPane ? (responsive.width >= 840 ? 3 : 2) : 1;
 
     const [ originStation,              setOriginStation              ] = useState();
     const [ originDistanceMeters,       setOriginDistanceMeters       ] = useState();
@@ -271,6 +445,7 @@ export default function DestinationPicker({ navigation }) {
     const [ tabletDestination,          setTabletDestination          ] = useState();
     const [ offlineDataFetchedAt,       setOfflineDataFetchedAt       ] = useState();
     const [ favoritesVersion,           setFavoritesVersion           ] = useState(0);
+    const [ searchQuery,                setSearchQuery                ] = useState('');
 
     const networkTimeoutMs = watchLayout ? WATCH_FETCH_TIMEOUT_MS : undefined;
 
@@ -337,17 +512,6 @@ export default function DestinationPicker({ navigation }) {
     const favoriteQuickTrips = quickTrips.filter(trip => trip.kind === 'favorite');
     const recentQuickTrips   = quickTrips.filter(trip => trip.kind === 'recent');
 
-    const prioritizedDestinations = useMemo(() => {
-        const favoriteIds = currentOriginFavoriteDestinationIds;
-        const favoriteIdsSet = new Set(favoriteIds);
-        const favoriteItems = favoriteIds
-            .map(id => destinationList.find(item => item.id === id))
-            .filter(Boolean);
-        const remainingItems = destinationList.filter(item => !favoriteIdsSet.has(item.id));
-
-        return [ ...favoriteItems, ...remainingItems ];
-    }, [ destinationList, currentOriginFavoriteDestinationIds ]);
-
     const crash = message => { setCrashMessage(message); };
 
     const refreshPreferences = async () => {
@@ -375,11 +539,12 @@ export default function DestinationPicker({ navigation }) {
         BackHandler.exitApp();
     };
 
+    // The swipe recognizer's responder would swallow wheel/touch scrolling on web, so it's native-only.
     const withOptionalSwipeExit = content => {
-        if (watchLayout) { return content; }
+        if (watchLayout || Platform.OS === 'web') { return content; }
 
         return (
-            <GestureRecognizer style={{ flex: 1 }} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
+            <GestureRecognizer style={styles.fill} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
                 {content}
             </GestureRecognizer>
         );
@@ -764,6 +929,7 @@ export default function DestinationPicker({ navigation }) {
         setTabletDestination(undefined);
         setSelectedId(undefined);
         setShowManualOriginPicker(false);
+        setSearchQuery('');
         setLoadFinished(true);
         if (!previewMode) { refreshPreferences(); }
     };
@@ -906,13 +1072,14 @@ export default function DestinationPicker({ navigation }) {
             return;
         }
 
-        const nextDestination = favoriteDestinations[0] || prioritizedDestinations[0];
+        // Only a favorite is opened automatically; otherwise the detail pane shows its empty state.
+        const nextDestination = favoriteDestinations[0];
 
         if (nextDestination) {
             setTabletDestination(nextDestination);
             setSelectedId(nextDestination.id);
         }
-    }, [ tabletTwoPane, originStation, showManualOriginPicker, destinationList, favoriteDestinations, prioritizedDestinations, tabletDestination ]);
+    }, [ tabletTwoPane, originStation, showManualOriginPicker, destinationList, favoriteDestinations, tabletDestination ]);
 
     // Opens the route of a tapped departure reminder (cold or warm start) once stations and schedules are loaded.
     useEffect(() => {
@@ -945,37 +1112,64 @@ export default function DestinationPicker({ navigation }) {
         if (!previewMode) { refreshPreferences(); }
     };
 
-    const renderDestinationItem = ({ item }) => (
+    const openManualOriginPicker = () => {
+        setSearchQuery('');
+        setShowManualOriginPicker(true);
+    };
+
+    const isFavoriteDestination = item => currentOriginFavoriteDestinationIds.indexOf(item.id) > -1;
+
+    const renderDestinationRow = ({ item, showDivider, style }) => (
         <StationRow
+            key={item.id}
             item={item}
             onPress={() => goToDestination(item)}
             accessibilityHint={Lang.t('selectThisDestinationHint').replace('%s', item.title)}
             onFavoritePress={() => toggleFavorite(item)}
-            isFavorite={currentOriginFavoriteDestinationIds.indexOf(item.id) > -1}
+            isFavorite={isFavoriteDestination(item)}
             selected={item.id === selectedId}
-            compact={watchLayout}
-            manualOrigin={watchLayout && showManualOriginPicker}
+            showDivider={showDivider}
+            style={style}
         />
     );
 
-    const renderOriginItem = ({ item }) => (
+    const renderOriginRow = ({ item, showDivider, style }) => (
         <StationRow
+            key={item.id}
             item={item}
+            leadingIcon="map-marker-outline"
             onPress={() => selectOrigin(item)}
             accessibilityHint={Lang.t('selectThisOriginHint').replace('%s', item.title)}
-            compact={watchLayout}
-            manualOrigin={watchLayout}
+            showDivider={showDivider}
+            style={style}
         />
     );
 
-    const renderWatchStationStack = (items, renderItem, footer = null) => (
+    const renderSearchBar = () => (
+        <Searchbar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={Lang.t('pickerSearchPlaceholder')}
+            accessibilityLabel={Lang.t('pickerSearchPlaceholder')}
+            mode="bar"
+            elevation={0}
+            style={[ styles.searchBar, { backgroundColor: theme.roles.surfaceContainerHigh, borderRadius: theme.shape.full } ]}
+        />
+    );
+
+    const searchEmptyText = Lang.t('pickerSearchEmpty').replace('%s', searchQuery.trim());
+
+    const renderWatchItems = (items, renderItem) => items.map(item => (
+        <WatchScaleItem key={item.id} maxScale={1}>
+            {renderItem(item)}
+        </WatchScaleItem>
+    ));
+
+    const renderWatchFooter = () => (
         <>
-            {items.map((item, index) => (
-                <WatchScaleItem key={item.id} style={index > 0 ? styles.watchScaledListItemSeparated : undefined}>
-                    {renderItem({ item })}
-                </WatchScaleItem>
-            ))}
-            {footer ? <WatchScaleItem style={styles.watchSettingsFooter}>{footer}</WatchScaleItem> : null}
+            <WatchScaleItem maxScale={1} style={styles.watchSettingsFooter}>
+                <SettingsButton navigation={navigation} compact />
+            </WatchScaleItem>
             <View style={{ height: watchListEndPadding }} />
         </>
     );
@@ -996,123 +1190,144 @@ export default function DestinationPicker({ navigation }) {
     }
 
     if (showManualOriginPicker && !tabletTwoPane) {
-        return withOptionalSwipeExit(
-                <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.manualOriginContentWatch : undefined ]}>
-                    {watchLayout ? (
+        const manualReason = manualOriginReason || Lang.t('manualOriginFallbackMessage');
+
+        if (watchLayout) {
+            return (
+                <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchTopPadding } ]}>
+                    <WatchScaleItem maxScale={1}>
                         <View style={styles.manualOriginHeaderWatch}>
-                            <Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.manualOriginTitleWatch}>
+                            <Text accessibilityRole="header" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.72} style={[ styles.manualOriginTitleWatch, { color: theme.text } ]}>
                                 {Lang.t('chooseOriginHint')}
                             </Text>
-                            <Text numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.manualOriginReasonWatch}>
-                                {manualOriginReason || Lang.t('manualOriginFallbackMessage')}
+                            <Text numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.72} style={[ styles.manualOriginReasonWatch, { color: theme.textMuted } ]}>
+                                {manualReason}
                             </Text>
                         </View>
-                    ) : (
-                        <View style={styles.screenHeader}>
-                            <View style={styles.headerTitleBlock}>
-                                <Text variant="headlineSmall" style={styles.headerTitle}>{Lang.t('chooseOriginHint')}</Text>
-                                <Text variant="bodyMedium">{manualOriginReason || Lang.t('manualOriginFallbackMessage')}</Text>
-                            </View>
-                            <SettingsButton navigation={navigation} />
-                        </View>
-                    )}
-                    {watchLayout ? renderWatchStationStack(allDestinationsList || [], renderOriginItem, <SettingsButton navigation={navigation} />) : (
-                        <FlatList
-                            data={allDestinationsList || []}
-                            renderItem={renderOriginItem}
-                            keyExtractor={item => item.id}
-                            scrollEnabled={false}
-                            showsVerticalScrollIndicator={false}
-                            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                    </WatchScaleItem>
+                    {renderWatchItems(allDestinationsList || [], item => (
+                        <WatchRow
+                            title={item.title}
+                            round={watchRound}
+                            centered
+                            onPress={() => selectOrigin(item)}
+                            accessibilityHint={Lang.t('selectThisOriginHint').replace('%s', item.title)}
                         />
-                    )}
+                    ))}
+                    {renderWatchFooter()}
+                </AppScreen>
+            );
+        }
+
+        const originStations = filterStations(allDestinationsList || [], searchQuery);
+
+        return withOptionalSwipeExit(
+                <AppScreen contentStyle={[ styles.stackGap, isShortHeight ? styles.stackGapShort : undefined ]}>
+                    <View style={styles.screenHeader}>
+                        <View style={styles.headerTitleBlock}>
+                            <Text variant={isShortHeight ? 'titleLarge' : 'headlineMedium'} accessibilityRole="header" style={[ styles.headerTitle, theme.type.emphasized.headline ]}>
+                                {Lang.t('pickerOriginTitle')}
+                            </Text>
+                            <Text variant="bodyMedium" style={{ color: theme.textMuted }}>{manualReason}</Text>
+                        </View>
+                        <SettingsButton navigation={navigation} />
+                    </View>
+                    {renderSearchBar()}
+                    <StationList items={originStations} renderRow={renderOriginRow} columns={stationColumns} emptyText={searchEmptyText} />
                 </AppScreen>
         );
     }
 
-    const quickTripSections = [
-        { key: 'favorite', title: Lang.t('favoritesSectionTitle'), trips: favoriteQuickTrips },
-        { key: 'recent',   title: Lang.t('recentsSectionTitle'),   trips: recentQuickTrips   }
-    ].filter(section => section.trips.length > 0);
+    const originBarProps = {
+        station:         originStation,
+        onChange:        openManualOriginPicker,
+        navigation:      navigation,
+        distanceMeters:  originDistanceMeters,
+        isOffline:       networkErrorDetected,
+        showMaterialYou: isAndroidDynamicColorAvailable
+    };
+
+    const filteredDestinations = filterStations(destinationList, searchQuery);
+
+    const routineCard = (
+        <RoutineCard
+            recentTrips={recentTrips}
+            onOpenTrip={({ origin, destination }) => goToDestination(destination, origin)}
+            onOpenReminders={() => navigation.navigate('Reminders')}
+            compact={watchLayout}
+        />
+    );
+
+    // Favorites and recents as two separate sections, each with its own empty state.
+    const renderQuickSections = () => [
+        { key: 'favorite', title: Lang.t('favoritesSectionTitle'), icon: 'star-outline',  trips: favoriteQuickTrips, empty: Lang.t('pickerFavoritesEmpty') },
+        { key: 'recent',   title: Lang.t('pickerRecentsTitle'),     icon: 'clock-outline', trips: recentQuickTrips,   empty: Lang.t('pickerRecentsEmpty')   }
+    ].map(section => (
+        <View key={section.key} style={styles.section}>
+            <SectionTitle title={section.title} compact={isShortHeight} />
+            {section.trips.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickTripList}>
+                    {section.trips.map(trip => (
+                        <QuickTripChip key={trip.id} trip={trip} kind={section.key} onPress={() => openTrip(trip)} />
+                    ))}
+                </ScrollView>
+            ) : (
+                <InlineEmptyHint icon={section.icon} text={section.empty} />
+            )}
+        </View>
+    ));
+
+    const renderAllStations = () => (
+        <View style={styles.section}>
+            <SectionTitle title={Lang.t('pickerAllStationsTitle')} compact={isShortHeight} />
+            <StationList items={filteredDestinations} renderRow={renderDestinationRow} columns={stationColumns} emptyText={searchEmptyText} />
+        </View>
+    );
 
     if (tabletTwoPane) {
         const isChoosingTabletOrigin = showManualOriginPicker || !originStation;
-        const canShowTabletSchedule = originStation && tabletDestination && originStation.id !== tabletDestination.id;
+        const canShowTabletSchedule  = !isChoosingTabletOrigin && tabletDestination && originStation.id !== tabletDestination.id;
+        const detailShortcuts = [
+            ...favoriteQuickTrips.map(trip => ({ trip, kind: 'favorite', onPress: () => openTrip(trip) })),
+            ...recentQuickTrips.map(trip => ({ trip, kind: 'recent', onPress: () => openTrip(trip) }))
+        ];
 
+        // Master and detail scroll independently (each pane is a bounded flex:1/minHeight:0 column).
         return withOptionalSwipeExit(
             <AppScreen scroll={false} contentWidth="wide" contentStyle={styles.tabletShell}>
                 <View style={[ styles.tabletMasterPane, { width: responsive.tabletMasterWidth } ]}>
-                    <View style={styles.tabletPaneHeader}>
+                    <View style={styles.screenHeader}>
                         <View style={styles.headerTitleBlock}>
-                            <Text variant="headlineSmall" style={styles.headerTitle}>
-                                {isChoosingTabletOrigin ? Lang.t('chooseOriginHint') : Lang.t('selectDestinationHint')}
+                            <Text variant="headlineSmall" accessibilityRole="header" style={[ styles.headerTitle, theme.type.emphasized.headline ]}>
+                                {isChoosingTabletOrigin ? Lang.t('pickerOriginTitle') : Lang.t('pickerTitle')}
                             </Text>
-                            <Text variant="bodyMedium" numberOfLines={isChoosingTabletOrigin ? 3 : 2}>
-                                {isChoosingTabletOrigin
-                                    ? (manualOriginReason || Lang.t('manualOriginFallbackMessage'))
-                                    : originStation?.title}
-                            </Text>
+                            {isChoosingTabletOrigin ? (
+                                <Text variant="bodyMedium" numberOfLines={3} style={{ color: theme.textMuted }}>
+                                    {manualOriginReason || Lang.t('manualOriginFallbackMessage')}
+                                </Text>
+                            ) : null}
                         </View>
                         <SettingsButton navigation={navigation} />
                     </View>
 
                     <ScrollView
-                        style={styles.tabletMasterScroll}
+                        style={styles.fill}
                         contentContainerStyle={styles.tabletMasterContent}
-                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator
                     >
                         {isChoosingTabletOrigin ? (
-                            <FlatList
-                                data={allDestinationsList || []}
-                                renderItem={renderOriginItem}
-                                keyExtractor={item => item.id}
-                                scrollEnabled={false}
-                                showsVerticalScrollIndicator={false}
-                                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                            />
+                            <>
+                                {renderSearchBar()}
+                                <StationList items={filterStations(allDestinationsList || [], searchQuery)} renderRow={renderOriginRow} emptyText={searchEmptyText} />
+                            </>
                         ) : (
                             <>
-                                <TransitCard style={styles.routePanel}>
-                                    <View style={styles.routePanelTop}>
-                                        <View style={[ styles.routeIcon, { backgroundColor: theme.accent } ]}><Text variant="titleMedium" style={{ color: theme.textInverse }}>🚆</Text></View>
-                                        <View style={styles.routePanelText}>
-                                            <Text variant="labelMedium">{Lang.t('fromStationLabel')}</Text>
-                                            <Text variant="titleLarge" style={styles.routeOrigin} numberOfLines={1}>{originStation?.title}</Text>
-                                        </View>
-                                    </View>
-                                    <View style={styles.routePanelActions}>
-                                        <Button mode="outlined" icon="map-marker" onPress={() => setShowManualOriginPicker(true)}>{Lang.t('changeOriginBtnLabel')}</Button>
-                                        <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
-                                    </View>
-                                    {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
-                                        <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
-                                    ) : null}
-                                    {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
-                                </TransitCard>
-
-                                {quickTripSections.map(section => (
-                                    <View key={section.key}>
-                                        <Text variant="titleMedium" style={styles.sectionTitle}>{section.title}</Text>
-                                        <View style={styles.tabletQuickRouteList}>
-                                            {section.trips.map(trip => (
-                                                <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} />
-                                            ))}
-                                        </View>
-                                    </View>
-                                ))}
-
-                                <View>
-                                    <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text>
-                                    <FlatList
-                                        data={prioritizedDestinations}
-                                        renderItem={renderDestinationItem}
-                                        keyExtractor={item => item.id}
-                                        extraData={`${selectedId}-${currentOriginFavoriteDestinationIds.join(',')}`}
-                                        scrollEnabled={false}
-                                        showsVerticalScrollIndicator={false}
-                                        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                                    />
-                                </View>
+                                <OriginBar {...originBarProps} />
+                                {routineCard}
+                                {renderQuickSections()}
+                                {renderSearchBar()}
+                                {renderAllStations()}
                             </>
                         )}
                     </ScrollView>
@@ -1133,113 +1348,119 @@ export default function DestinationPicker({ navigation }) {
                             forcePreviewData={Boolean(previewMode)}
                         />
                     ) : (
-                        <TransitCard style={styles.tabletEmptyDetail}>
-                            <Text variant="headlineSmall" style={styles.centerText}>{Lang.t('selectDestinationHint')}</Text>
-                            <Text variant="bodyMedium" style={styles.centerText}>{Lang.t('chooseOriginHint')}</Text>
-                        </TransitCard>
+                        <DetailEmptyState
+                            title={isChoosingTabletOrigin ? Lang.t('chooseOriginHint') : Lang.t('pickerDetailEmptyTitle')}
+                            message={isChoosingTabletOrigin ? null : Lang.t('pickerDetailEmptyMessage')}
+                            shortcuts={isChoosingTabletOrigin ? [] : detailShortcuts}
+                        />
                     )}
                 </View>
             </AppScreen>
         );
     }
 
-    return withOptionalSwipeExit(
-            <AppScreen contentStyle={[ styles.stackGap, watchLayout ? styles.stackGapWatch : undefined ]}>
-                {!watchLayout ? (
-                    <View style={styles.screenHeader}>
-                        <View style={styles.headerTitleBlock}>
-                            <Text variant="headlineSmall" style={styles.headerTitle}>{Lang.t('selectDestinationHint')}</Text>
-                            <Text variant="bodyMedium">{originStation?.title}</Text>
-                        </View>
-                        <SettingsButton navigation={navigation} />
-                    </View>
+    // Watch (W1): Desde chip → Favoritos → Recientes → Todas, all inside the round-safe flow width.
+    if (watchLayout) {
+        return (
+            <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchTopPadding } ]}>
+                <WatchScaleItem maxScale={1}>
+                    <OriginBar {...originBarProps} variant="watch" round={watchRound} />
+                </WatchScaleItem>
+
+                {routineCard}
+
+                {favoriteQuickTrips.length > 0 ? (
+                    <>
+                        <WatchScaleItem maxScale={1}><WatchSectionLabel title={Lang.t('favoritesSectionTitle')} /></WatchScaleItem>
+                        {renderWatchItems(favoriteQuickTrips, trip => (
+                            <WatchRow
+                                title={quickTripTitle(trip)}
+                                leadingIcon="train"
+                                star="on"
+                                round={watchRound}
+                                onPress={() => openTrip(trip)}
+                                accessibilityLabel={quickTripAccessibilityLabel(trip, 'favorite')}
+                            />
+                        ))}
+                    </>
                 ) : null}
 
-                {watchLayout ? <WatchScaleItem>
-                    <TransitCard style={[ styles.routePanel, styles.routePanelWatch ]}>
-                        <View style={[ styles.routePanelTop, styles.routePanelTopWatch ]}>
-                            <View style={styles.routePanelText}>
-                                <Text variant="labelSmall" style={styles.watchText}>{Lang.t('fromStationLabel')}</Text>
-                                <Text variant="titleMedium" style={[ styles.routeOrigin, styles.watchText ]} numberOfLines={1}>{originStation?.title}</Text>
-                            </View>
-                        </View>
-                        <View style={[ styles.routePanelActions, styles.routePanelActionsWatch ]}>
-                            <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={Lang.t('changeOriginBtnLabel')}
-                                onPress={() => setShowManualOriginPicker(true)}
-                                style={[ styles.changeOriginWatch, { borderColor: theme.paperTheme.colors.outline } ]}
-                            >
-                                <Text variant="labelLarge" style={styles.changeOriginTextWatch}>📍 {Lang.t('changeOriginBtnLabel')}</Text>
-                            </Pressable>
-                            <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
-                        </View>
-                        {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
-                            <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
-                        ) : null}
-                        {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
-                    </TransitCard>
-                </WatchScaleItem> : (
-                    <TransitCard style={styles.routePanel}>
-                        <View style={styles.routePanelTop}>
-                            <View style={[ styles.routeIcon, { backgroundColor: theme.accent } ]}><Text variant="titleMedium" style={{ color: theme.textInverse }}>🚆</Text></View>
-                            <View style={styles.routePanelText}>
-                                <Text variant="labelMedium">{Lang.t('fromStationLabel')}</Text>
-                                <Text variant="headlineSmall" style={styles.routeOrigin} numberOfLines={1}>{originStation?.title}</Text>
-                            </View>
-                        </View>
-                        <View style={styles.routePanelActions}>
-                            <Button mode="outlined" icon="map-marker" onPress={() => setShowManualOriginPicker(true)}>{Lang.t('changeOriginBtnLabel')}</Button>
-                            <OfflineModeHint navigation={navigation} isOffline={networkErrorDetected} />
-                        </View>
-                        {originDistanceMeters > PROXIMITY_WARNING_METERS ? (
-                            <StatusPill icon="alert" tone="warning">{Lang.t('detectedOriginWarning').replace('%s', formatDistanceKm(originDistanceMeters))}</StatusPill>
-                        ) : null}
-                        {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
-                    </TransitCard>
-                )}
+                {recentQuickTrips.length > 0 ? (
+                    <>
+                        <WatchScaleItem maxScale={1}><WatchSectionLabel title={Lang.t('pickerRecentsTitle')} /></WatchScaleItem>
+                        {renderWatchItems(recentQuickTrips, trip => (
+                            <WatchRow
+                                title={quickTripTitle(trip)}
+                                leadingIcon="clock-outline"
+                                round={watchRound}
+                                onPress={() => openTrip(trip)}
+                                accessibilityLabel={quickTripAccessibilityLabel(trip, 'recent')}
+                            />
+                        ))}
+                    </>
+                ) : null}
 
-                {quickTripSections.map(section => (
-                    watchLayout ? (
-                        <WatchScaleItem key={section.key}>
-                            <View style={styles.watchQuickRouteSection}>
-                                <Text variant="labelLarge" style={[ styles.sectionTitle, styles.sectionTitleWatch ]}>{section.title}</Text>
-                                {section.trips.map(trip => (
-                                    <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} compact />
-                                ))}
-                            </View>
-                        </WatchScaleItem>
-                    ) : (
-                        <View key={section.key}>
-                            <Text variant="titleMedium" style={styles.sectionTitle}>{section.title}</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRouteList}>
-                                {section.trips.map(trip => (
-                                    <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} />
-                                ))}
-                            </ScrollView>
-                        </View>
-                    )
-                ))}
+                <WatchScaleItem maxScale={1}><WatchSectionLabel title={Lang.t('pickerAllStationsTitle')} /></WatchScaleItem>
+                {renderWatchItems(destinationList, item => {
+                    const favorite = isFavoriteDestination(item);
 
-                {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem, <SettingsButton navigation={navigation} />) : (
-                    <View>
-                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text>
-                        <FlatList
-                            data={prioritizedDestinations}
-                            renderItem={renderDestinationItem}
-                            keyExtractor={item => item.id}
-                            extraData={`${selectedId}-${currentOriginFavoriteDestinationIds.join(',')}`}
-                            scrollEnabled={false}
-                            showsVerticalScrollIndicator={false}
-                            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                    return (
+                        <WatchRow
+                            title={item.title}
+                            leadingIcon="train"
+                            star={favorite ? 'on' : 'off'}
+                            round={watchRound}
+                            onPress={() => goToDestination(item)}
+                            accessibilityHint={Lang.t('selectThisDestinationHint').replace('%s', item.title)}
+                            onStarPress={() => toggleFavorite(item)}
+                            starLabel={`${favorite ? Lang.t('removeFavoriteBtnLabel') : Lang.t('addFavoriteBtnLabel')}: ${item.title}`}
                         />
+                    );
+                })}
+
+                {renderWatchFooter()}
+            </AppScreen>
+        );
+    }
+
+    return withOptionalSwipeExit(
+            <AppScreen contentStyle={[ styles.stackGap, isShortHeight ? styles.stackGapShort : undefined ]}>
+                <View style={styles.screenHeader}>
+                    <Text
+                        variant={isShortHeight ? 'titleLarge' : 'headlineMedium'}
+                        accessibilityRole="header"
+                        numberOfLines={1}
+                        style={[ styles.headerTitle, isShortHeight ? styles.headerTitleShort : styles.headerTitleBlock, theme.type.emphasized.headline ]}
+                    >
+                        {Lang.t('pickerTitle')}
+                    </Text>
+                    {isShortHeight ? <OriginBar {...originBarProps} variant="dense" /> : null}
+                    <SettingsButton navigation={navigation} />
+                </View>
+
+                {!isShortHeight ? <OriginBar {...originBarProps} /> : null}
+
+                {routineCard}
+
+                {isShortHeight ? (
+                    <View style={styles.shortQuickRow}>
+                        {renderQuickSections().map(section => (
+                            <View key={section.key} style={styles.shortQuickColumn}>{section}</View>
+                        ))}
                     </View>
-                )}
+                ) : renderQuickSections()}
+
+                {renderSearchBar()}
+                {renderAllStations()}
             </AppScreen>
     );
 }
 
 const styles = StyleSheet.create({
+    fill: {
+        flex: 1,
+        minHeight: 0
+    },
     centerContent: {
         justifyContent: 'center',
         alignItems: 'center'
@@ -1253,11 +1474,251 @@ const styles = StyleSheet.create({
         alignSelf: 'center'
     },
     stackGap: {
+        gap: 16
+    },
+    stackGapShort: {
+        gap: 10
+    },
+    screenHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         gap: 12
     },
-    stackGapWatch: {
+    headerTitleBlock: {
+        flex: 1,
+        minWidth: 0
+    },
+    headerTitle: {
+        fontWeight: '800'
+    },
+    headerTitleShort: {
+        flexShrink: 1
+    },
+    settingsButton: {
+        margin: 0
+    },
+
+    // Origin bar.
+    originWrap: {
+        gap: 8
+    },
+    originDenseWrap: {
+        flex: 1,
+        minWidth: 0,
         gap: 4
     },
+    originBar: {
+        minHeight: 64,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingLeft: 8,
+        paddingRight: 8,
+        paddingVertical: 8
+    },
+    originBarDense: {
+        minHeight: 48,
+        gap: 8,
+        paddingLeft: 6,
+        paddingRight: 6,
+        paddingVertical: 4
+    },
+    originAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    originAvatarDense: {
+        width: 36,
+        height: 36,
+        borderRadius: 18
+    },
+    originText: {
+        flex: 1,
+        minWidth: 0
+    },
+    originDenseText: {
+        flex: 1,
+        minWidth: 0
+    },
+    originTitle: {
+        fontWeight: '700'
+    },
+    originChangeButton: {
+        flexShrink: 0
+    },
+    originChangeContent: {
+        minHeight: 44,
+        paddingHorizontal: 6
+    },
+    originChangeContentDense: {
+        minHeight: 40,
+        paddingHorizontal: 4
+    },
+    originExtras: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 8
+    },
+    originExtrasWatch: {
+        justifyContent: 'center',
+        marginTop: 6
+    },
+    originWatchWrap: {
+        width: '100%',
+        alignItems: 'center'
+    },
+    originWatch: {
+        width: '86%',
+        minHeight: 52,
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    originWatchRound: {
+        width: '70%'
+    },
+    originWatchLabel: {
+        fontSize: 11,
+        lineHeight: 14,
+        fontWeight: '600',
+        textAlign: 'center'
+    },
+    originWatchTitleRow: {
+        maxWidth: '100%',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4
+    },
+    originWatchTitle: {
+        flexShrink: 1,
+        fontSize: 15,
+        lineHeight: 19,
+        fontWeight: '800',
+        textAlign: 'center'
+    },
+
+    // Sections.
+    section: {
+        gap: 8
+    },
+    sectionTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        minHeight: 28
+    },
+    sectionTitleRowCompact: {
+        minHeight: 24
+    },
+    sectionTitle: {
+        fontWeight: '700'
+    },
+    shortQuickRow: {
+        flexDirection: 'row',
+        gap: 16
+    },
+    shortQuickColumn: {
+        flex: 1,
+        minWidth: 0
+    },
+    inlineEmpty: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        minHeight: 48,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderWidth: StyleSheet.hairlineWidth
+    },
+    inlineEmptyText: {
+        flex: 1
+    },
+    quickTripList: {
+        gap: 8,
+        paddingRight: 8
+    },
+    favoriteChip: {
+        width: 128,
+        minHeight: 76,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        justifyContent: 'space-between',
+        gap: 6
+    },
+    favoriteChipIcons: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+    },
+    recentChip: {
+        maxWidth: 220,
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingLeft: 14,
+        paddingRight: 18,
+        paddingVertical: 6
+    },
+    quickChipTitle: {
+        fontWeight: '600'
+    },
+    recentChipTitle: {
+        flexShrink: 1
+    },
+    searchBar: {
+        flexShrink: 0
+    },
+
+    // Station list (M3 one-line list, 52 dp).
+    stationGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        columnGap: 0
+    },
+    stationRowWrap: {
+        width: '100%'
+    },
+    stationRow: {
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center'
+    },
+    stationRowMain: {
+        flex: 1,
+        minWidth: 0,
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+        paddingLeft: 16,
+        paddingRight: 12
+    },
+    stationTitle: {
+        flex: 1,
+        minWidth: 0
+    },
+    stationStar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        marginRight: 2,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    stationDivider: {
+        height: StyleSheet.hairlineWidth,
+        marginLeft: 54,
+        marginRight: 16
+    },
+
+    // Tablet / desktop master-detail.
     tabletShell: {
         flex: 1,
         minHeight: 0,
@@ -1267,307 +1728,137 @@ const styles = StyleSheet.create({
     },
     tabletMasterPane: {
         flexShrink: 0,
-        minHeight: 0
+        minHeight: 0,
+        gap: 12
     },
     tabletDetailPane: {
         flex: 1,
         minWidth: 0,
         minHeight: 0
     },
-    tabletPaneHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 10,
-        marginBottom: 12
-    },
-    tabletMasterScroll: {
-        flex: 1,
-        minHeight: 0
-    },
     tabletMasterContent: {
-        gap: 12,
+        gap: 16,
         paddingBottom: 24
     },
-    tabletQuickRouteList: {
+    detailEmptyContent: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 24
+    },
+    detailEmptyCard: {
+        width: '100%',
+        maxWidth: 560,
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 24,
+        paddingVertical: 32
+    },
+    detailEmptyIcon: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 4
+    },
+    detailEmptyShortcuts: {
+        width: '100%',
+        gap: 8,
+        marginTop: 8
+    },
+    detailEmptyShortcutList: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
         gap: 8
     },
-    tabletEmptyDetail: {
+
+    // Watch.
+    watchContent: {
+        gap: 6,
+        alignItems: 'stretch'
+    },
+    watchSectionLabel: {
+        marginTop: 6,
+        fontSize: 12,
+        lineHeight: 16,
+        fontWeight: '700',
+        textAlign: 'center'
+    },
+    watchRow: {
+        width: '94%',
+        minHeight: 52,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        overflow: 'hidden'
+    },
+    watchRowRound: {
+        width: '84%'
+    },
+    watchRowMain: {
         flex: 1,
+        minWidth: 0,
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingLeft: 14,
+        paddingRight: 4,
+        paddingVertical: 6
+    },
+    watchRowMainNoStar: {
+        paddingRight: 14
+    },
+    watchRowMainCentered: {
+        justifyContent: 'center'
+    },
+    watchRowTitle: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 15,
+        lineHeight: 19,
+        fontWeight: '700'
+    },
+    watchRowTitleCentered: {
+        flex: 0,
+        flexShrink: 1,
+        textAlign: 'center'
+    },
+    watchRowStar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        marginRight: 4,
         alignItems: 'center',
         justifyContent: 'center'
     },
-    manualOriginContentWatch: {
-        gap: 6,
+    watchSettingsFooter: {
+        alignItems: 'center',
         paddingTop: 10,
-        alignItems: 'center'
+        paddingBottom: 6
     },
     manualOriginHeaderWatch: {
         width: '76%',
         alignSelf: 'center',
         alignItems: 'center',
-        gap: 4,
-        marginBottom: 0
+        gap: 4
     },
     manualOriginTitleWatch: {
         width: '100%',
         textAlign: 'center',
-        fontSize: 21,
-        lineHeight: 24,
-        fontWeight: '900',
+        fontSize: 18,
+        lineHeight: 22,
+        fontWeight: '800',
         includeFontPadding: false
     },
     manualOriginReasonWatch: {
         width: '100%',
         textAlign: 'center',
-        fontSize: 13,
-        lineHeight: 16,
+        fontSize: 12,
+        lineHeight: 15,
         fontWeight: '600',
-        opacity: 0.92,
         includeFontPadding: false
-    },
-    screenHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        marginBottom: 2
-    },
-    settingsButton: {
-        margin: 0,
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    settingsButtonIcon: {
-        fontSize: 24,
-        lineHeight: 28,
-        fontWeight: '800'
-    },
-    watchScaledListItemSeparated: {
-        marginTop: 6
-    },
-    watchSettingsFooter: {
-        alignItems: 'center',
-        paddingTop: 12,
-        paddingBottom: 6
-    },
-    headerTitleBlock: {
-        flex: 1
-    },
-    headerTitleBlockWatch: {
-        maxWidth: 240,
-        alignSelf: 'center'
-    },
-    screenHeaderWatch: {
-        justifyContent: 'center'
-    },
-    headerTitle: {
-        fontWeight: '900'
-    },
-    watchText: {
-        textAlign: 'center'
-    },
-    routePanel: {
-        marginBottom: 4
-    },
-    routePanelWatch: {
-        marginBottom: 0
-    },
-    routePanelTop: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14
-    },
-    routePanelTopWatch: {
-        justifyContent: 'center',
-        gap: 0
-    },
-    routeIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    routePanelText: {
-        flex: 1
-    },
-    routeOrigin: {
-        fontWeight: '900'
-    },
-    routePanelActions: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 8,
-        marginTop: 4
-    },
-    routePanelActionsWatch: {
-        justifyContent: 'center',
-        marginTop: 2
-    },
-    changeOriginWatch: {
-        height: 32,
-        borderWidth: 1,
-        borderRadius: 16,
-        paddingHorizontal: 10,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    changeOriginTextWatch: {
-        fontSize: 14,
-        lineHeight: 18,
-        fontWeight: '800'
-    },
-    sectionTitle: {
-        marginBottom: 8,
-        fontWeight: '800'
-    },
-    sectionTitleWatch: {
-        marginBottom: 6,
-        textAlign: 'center'
-    },
-    quickRouteList: {
-        gap: 10,
-        paddingRight: 8,
-        paddingBottom: 4
-    },
-    quickRouteCard: {
-        width: 220,
-        borderRadius: 22,
-        overflow: 'hidden'
-    },
-    quickRouteItem: {
-        minHeight: 86
-    },
-    watchQuickRouteSection: {
-        width: '92%',
-        alignSelf: 'center',
-        gap: 6
-    },
-    quickRouteCardWatch: {
-        borderRadius: 20,
-        overflow: 'hidden'
-    },
-    quickRoutePressableWatch: {
-        minHeight: 46,
-        paddingHorizontal: 14,
-        paddingVertical: 7,
-        justifyContent: 'center'
-    },
-    quickRouteLabelWatch: {
-        fontSize: 11,
-        lineHeight: 13,
-        fontWeight: '700',
-        opacity: 0.72,
-        textAlign: 'center'
-    },
-    quickRouteTitleWatch: {
-        fontSize: 15,
-        lineHeight: 18,
-        fontWeight: '900',
-        textAlign: 'center'
-    },
-    stationSurface: {
-        borderRadius: 18,
-        overflow: 'hidden'
-    },
-    stationSurfaceWatch: {
-        width: '92%',
-        alignSelf: 'center',
-        borderRadius: 24,
-        minHeight: 52,
-        position: 'relative'
-    },
-    stationSurfaceManualWatch: {
-        width: '82%',
-        borderRadius: 21,
-        minHeight: 44
-    },
-    stationRowPressableWatch: {
-        minHeight: 52,
-        paddingLeft: 16,
-        paddingRight: 52,
-        justifyContent: 'center'
-    },
-    stationRowPressableManualWatch: {
-        minHeight: 44,
-        paddingLeft: 18,
-        paddingRight: 18,
-        alignItems: 'center'
-    },
-    stationRow: {
-        minHeight: 60,
-        flexDirection: 'row',
-        alignItems: 'stretch'
-    },
-    stationRowMain: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 60,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        paddingLeft: 18,
-        paddingRight: 8,
-        paddingVertical: 8
-    },
-    stationRowIcon: {
-        width: 24,
-        textAlign: 'center',
-        fontSize: 19,
-        lineHeight: 23
-    },
-    stationRowSideAction: {
-        width: 56,
-        minHeight: 60,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    stationRowSideActionText: {
-        textAlign: 'center',
-        fontSize: 29,
-        lineHeight: 33,
-        fontWeight: '700'
-    },
-    stationRowWatch: {
-        minHeight: 52,
-        paddingVertical: 0,
-        paddingLeft: 12,
-        paddingRight: 42
-    },
-    stationTitle: {
-        fontWeight: '700'
-    },
-    stationTitleWatch: {
-        fontSize: 16,
-        lineHeight: 20,
-        fontWeight: '800',
-        textAlign: 'left'
-    },
-    stationTitleManualWatch: {
-        width: '100%',
-        textAlign: 'center',
-        fontSize: 16,
-        lineHeight: 20
-    },
-    stationStarFloating: {
-        position: 'absolute',
-        top: 3,
-        right: 5,
-        margin: 0,
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    stationStarText: {
-        fontSize: 30,
-        lineHeight: 34,
-        fontWeight: '700'
     }
 });
