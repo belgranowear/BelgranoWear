@@ -19,6 +19,7 @@ import Settings          from './components/Settings';
 import About             from './components/About';
 
 import Lang from './includes/Lang';
+import Reminders from './includes/Reminders';
 import { ThemeProvider, useTheme } from './includes/Theme';
 import { getInitialRouteNameForPreview, isAnyUIPreview, previewParams } from './includes/UIPreview';
 import { isWatchDevice } from './includes/Device';
@@ -116,3 +117,6 @@ export default function App() {
     </ThemeProvider>
   );
 }
+
+// Registers the foreground notification handler and reminder tap routing as early as possible.
+Reminders.initialize();
