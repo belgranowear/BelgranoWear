@@ -419,7 +419,104 @@ export function TwoPane({
 // Alias kept for readers who look for the Material name.
 export const AppSplitView = TwoPane;
 
-function WatchArcScrollIndicator({ contentHeight, responsive, scrollOffset, theme, viewportHeight }) {
+/**
+ * Feeds `WatchScaleItem` and `WatchArcScrollIndicator` from a screen's own scrollable (e.g. a
+ * SectionList inside `<AppScreen scroll={false}>`). Spread the returned handlers on the list and
+ * wrap its items with `<WatchScrollProvider tracker={tracker}>`.
+ *
+ * With `useNativeDriver` (default on native) `onScroll` is an `Animated.event`, so the list must
+ * be an Animated component (`Animated.ScrollView`, `Animated.FlatList`,
+ * `Animated.createAnimatedComponent(SectionList)`). Pass `{ useNativeDriver: false }` to use a
+ * plain list (JS-driven, slightly less smooth).
+ *
+ * @param {object}   [options]
+ * @param {boolean}  [options.enabled=isWatch]   Scale/fade items (WatchScaleItem) while true.
+ * @param {Function} [options.onScroll]          Extra listener, called with every scroll event
+ *        (e.g. the `onScroll` returned by useRotaryScroll).
+ * @param {boolean}  [options.useNativeDriver=Platform.OS !== 'web']
+ * @returns {{ enabled: boolean, scrollY: Animated.Value, scrollOffset: number, viewportHeight: number,
+ *            contentHeight: number, showIndicator: boolean, onScroll: Function,
+ *            onLayout: Function, onContentSizeChange: Function, scrollEventThrottle: number }}
+ */
+export function useWatchScrollTracker({ enabled, onScroll, useNativeDriver = Platform.OS !== 'web' } = {}) {
+    const responsive = useResponsiveMetrics();
+    const isEnabled = typeof(enabled) === 'boolean' ? enabled : responsive.isWatch;
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const [ viewportHeight, setViewportHeight ] = useState(0);
+    const [ contentHeight, setContentHeight ] = useState(0);
+    const [ scrollOffset, setScrollOffset ] = useState(0);
+    const onScrollRef = useRef(onScroll);
+
+    onScrollRef.current = onScroll;
+
+    const listener = event => {
+        if (isEnabled) { setScrollOffset(event.nativeEvent.contentOffset.y); }
+        if (onScrollRef.current) { onScrollRef.current(event); }
+    };
+
+    const handleScroll = useNativeDriver
+        ? Animated.event([ { nativeEvent: { contentOffset: { y: scrollY } } } ], { useNativeDriver: true, listener })
+        : event => {
+            scrollY.setValue(event.nativeEvent.contentOffset.y);
+            listener(event);
+        };
+
+    return {
+        enabled: isEnabled,
+        scrollY,
+        scrollOffset,
+        viewportHeight,
+        contentHeight,
+        showIndicator: isEnabled && contentHeight > viewportHeight + 4,
+        onScroll: handleScroll,
+        onLayout: event => setViewportHeight(event.nativeEvent.layout.height),
+        onContentSizeChange: (_, height) => setContentHeight(height),
+        scrollEventThrottle: 16
+    };
+}
+
+/**
+ * Provides the scroll metrics read by `WatchScaleItem` descendants.
+ *
+ * @param {object} props
+ * @param {ReturnType<typeof useWatchScrollTracker>} props.tracker
+ */
+export function WatchScrollProvider({ tracker, children }) {
+    const value = {
+        enabled: Boolean(tracker?.enabled),
+        scrollY: tracker?.scrollY || null,
+        viewportHeight: tracker?.viewportHeight || 0
+    };
+
+    return <WatchScrollMetricsContext.Provider value={value}>{children}</WatchScrollMetricsContext.Provider>;
+}
+
+/**
+ * Curved scroll indicator hugging the right edge of a round watch face. Render it as a sibling
+ * after the scrollable (absolute-fill overlay, pointerEvents none), usually only when
+ * `tracker.showIndicator`.
+ *
+ * @param {object} props
+ * @param {number} props.contentHeight   Total scrollable content height.
+ * @param {number} props.viewportHeight  Visible height of the scrollable.
+ * @param {number} props.scrollOffset    Current vertical offset.
+ * @param {object} [props.responsive]    useResponsiveMetrics() result (read internally if omitted).
+ * @param {object} [props.theme]         App theme (read internally if omitted).
+ */
+export function WatchArcScrollIndicator(props) {
+    const { theme: contextTheme } = useTheme();
+    const contextResponsive = useResponsiveMetrics();
+
+    return (
+        <WatchArcScrollIndicatorView
+            {...props}
+            responsive={props.responsive || contextResponsive}
+            theme={props.theme || contextTheme}
+        />
+    );
+}
+
+function WatchArcScrollIndicatorView({ contentHeight, responsive, scrollOffset, theme, viewportHeight }) {
     const segmentCount = 72;
     const thumbSegmentMin = 8;
     const arcStartDegrees = -62;
