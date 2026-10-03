@@ -14,6 +14,7 @@ import {
 import { Button, Card as PaperCard, Chip, Text, TouchableRipple } from 'react-native-paper';
 
 import { NavigationContext } from '@react-navigation/native';
+import Svg, { Path } from 'react-native-svg';
 
 import { useTheme } from '../includes/Theme';
 import { isWatchDevice } from '../includes/Device';
@@ -217,7 +218,6 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
     const scrollRef = externalScrollRef || internalScrollRef;
     const [ viewportHeight, setViewportHeight ] = useState(0);
     const [ contentHeight, setContentHeight ] = useState(0);
-    const [ scrollOffset, setScrollOffset ] = useState(0);
     const isScreenFocused = useOptionalIsFocused();
     const rotary = useRotaryScroll(scrollRef, { enabled: responsive.isWatch && scroll && isScreenFocused });
 
@@ -251,7 +251,6 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
     };
     const shouldShowWatchScrollIndicator = responsive.isWatch && contentHeight > viewportHeight + 4;
     const handleScroll = event => {
-        if (responsive.isWatch) { setScrollOffset(event.nativeEvent.contentOffset.y); }
         if (rotary?.onScroll) { rotary.onScroll(event); }
         if (onScroll) { onScroll(event); }
     };
@@ -294,7 +293,7 @@ export function AppScreen({ children, scroll = true, contentStyle, style, onScro
                     <WatchArcScrollIndicator
                         contentHeight={contentHeight}
                         responsive={responsive}
-                        scrollOffset={scrollOffset}
+                        scrollY={scrollY}
                         theme={theme}
                         viewportHeight={viewportHeight}
                     />
@@ -434,7 +433,7 @@ export const AppSplitView = TwoPane;
  * @param {Function} [options.onScroll]          Extra listener, called with every scroll event
  *        (e.g. the `onScroll` returned by useRotaryScroll).
  * @param {boolean}  [options.useNativeDriver=Platform.OS !== 'web']
- * @returns {{ enabled: boolean, scrollY: Animated.Value, scrollOffset: number, viewportHeight: number,
+ * @returns {{ enabled: boolean, scrollY: Animated.Value, viewportHeight: number,
  *            contentHeight: number, showIndicator: boolean, onScroll: Function,
  *            onLayout: Function, onContentSizeChange: Function, scrollEventThrottle: number }}
  */
@@ -444,13 +443,11 @@ export function useWatchScrollTracker({ enabled, onScroll, useNativeDriver = Pla
     const scrollY = useRef(new Animated.Value(0)).current;
     const [ viewportHeight, setViewportHeight ] = useState(0);
     const [ contentHeight, setContentHeight ] = useState(0);
-    const [ scrollOffset, setScrollOffset ] = useState(0);
     const onScrollRef = useRef(onScroll);
 
     onScrollRef.current = onScroll;
 
     const listener = event => {
-        if (isEnabled) { setScrollOffset(event.nativeEvent.contentOffset.y); }
         if (onScrollRef.current) { onScrollRef.current(event); }
     };
 
@@ -464,7 +461,6 @@ export function useWatchScrollTracker({ enabled, onScroll, useNativeDriver = Pla
     return {
         enabled: isEnabled,
         scrollY,
-        scrollOffset,
         viewportHeight,
         contentHeight,
         showIndicator: isEnabled && contentHeight > viewportHeight + 4,
@@ -499,7 +495,8 @@ export function WatchScrollProvider({ tracker, children }) {
  * @param {object} props
  * @param {number} props.contentHeight   Total scrollable content height.
  * @param {number} props.viewportHeight  Visible height of the scrollable.
- * @param {number} props.scrollOffset    Current vertical offset.
+ * @param {Animated.Value} [props.scrollY] Scroll offset value fed by the scrollable (preferred).
+ * @param {number} [props.scrollOffset]  Plain offset, for callers without an Animated.Value.
  * @param {object} [props.responsive]    useResponsiveMetrics() result (read internally if omitted).
  * @param {object} [props.theme]         App theme (read internally if omitted).
  */
@@ -516,55 +513,68 @@ export function WatchArcScrollIndicator(props) {
     );
 }
 
-function WatchArcScrollIndicatorView({ contentHeight, responsive, scrollOffset, theme, viewportHeight }) {
-    const segmentCount = 72;
-    const thumbSegmentMin = 8;
-    const arcStartDegrees = -62;
-    const arcEndDegrees = 62;
-    const centerX = responsive.width / 2;
-    const centerY = responsive.height / 2;
-    const segmentWidth = 3;
-    const segmentHeight = 8;
-    const radius = (responsive.shortestSide / 2) - (segmentWidth / 2);
-    const maxScrollY = Math.max(1, contentHeight - viewportHeight);
-    const scrollProgress = clamp(scrollOffset / maxScrollY, 0, 1);
-    const visibleRatio = clamp(viewportHeight / Math.max(1, contentHeight), 0.16, 0.9);
-    const thumbSegmentCount = clamp(segmentCount * visibleRatio, thumbSegmentMin, segmentCount);
-    const maxThumbStart = segmentCount - thumbSegmentCount;
-    const thumbStart = scrollProgress * maxThumbStart;
-    const thumbEnd = thumbStart + thumbSegmentCount;
-    const trackOpacity = 0.06;
-    const thumbOpacity = 0.58;
+// Arc geometry in screen degrees (0° = 3 o'clock, positive = clockwise).
+const WATCH_ARC_START   = -62;
+const WATCH_ARC_END     = 62;
+const WATCH_ARC_STROKE  = 4;
+const WATCH_ARC_MIN_THUMB = 0.16;
+
+const arcPoint = (cx, cy, r, degrees) => {
+    const radians = (degrees * Math.PI) / 180;
+    return `${(cx + Math.cos(radians) * r).toFixed(2)} ${(cy + Math.sin(radians) * r).toFixed(2)}`;
+};
+
+const arcPath = (cx, cy, r, from, to) => `M${arcPoint(cx, cy, r, from)} A${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${arcPoint(cx, cy, r, to)}`;
+
+// Two SVG arcs: a static track and a thumb that only rotates around the screen center. The
+// rotation follows the scroll Animated.Value directly (native driver when the scrollable drives it
+// natively), so scrolling never re-renders React.
+function WatchArcScrollIndicatorView({ contentHeight, responsive, scrollOffset, scrollY, theme, viewportHeight }) {
+    const fallbackScrollY = useRef(new Animated.Value(0)).current;
+    const driver = scrollY || fallbackScrollY;
+
+    useEffect(() => {
+        if (!scrollY) { fallbackScrollY.setValue(scrollOffset || 0); }
+    }, [ scrollY, scrollOffset ]);
+
+    const { width, height } = responsive;
+    const centerX      = width / 2;
+    const centerY      = height / 2;
+    const radius       = (responsive.shortestSide / 2) - WATCH_ARC_STROKE;
+    const sweep        = WATCH_ARC_END - WATCH_ARC_START;
+    const maxScrollY   = Math.max(1, contentHeight - viewportHeight);
+    const visibleRatio = clamp(viewportHeight / Math.max(1, contentHeight), WATCH_ARC_MIN_THUMB, 0.9);
+    const thumbSweep   = sweep * visibleRatio;
+    const rotate       = driver.interpolate({
+        inputRange:  [ 0, maxScrollY ],
+        outputRange: [ '0deg', `${sweep - thumbSweep}deg` ],
+        extrapolate: 'clamp'
+    });
+    const frame = { position: 'absolute', top: 0, left: 0, width, height };
 
     return (
         <View pointerEvents="none" style={styles.watchArcScrollIndicator}>
-            {Array.from({ length: segmentCount }, (_, index) => {
-                const progress = segmentCount === 1 ? 0 : index / (segmentCount - 1);
-                const degrees = arcStartDegrees + ((arcEndDegrees - arcStartDegrees) * progress);
-                const radians = (degrees * Math.PI) / 180;
-                const segmentStart = index;
-                const segmentEnd = index + 1;
-                const thumbCoverage = clamp(Math.min(segmentEnd, thumbEnd) - Math.max(segmentStart, thumbStart), 0, 1);
-                const opacity = trackOpacity + ((thumbOpacity - trackOpacity) * thumbCoverage);
-
-                return (
-                    <View
-                        key={`watch-scroll-arc-${index}`}
-                        style={[
-                            styles.watchArcScrollIndicatorSegment,
-                            {
-                                left: centerX + (Math.cos(radians) * radius) - (segmentWidth / 2),
-                                top: centerY + (Math.sin(radians) * radius) - (segmentHeight / 2),
-                                width: segmentWidth,
-                                height: segmentHeight,
-                                backgroundColor: thumbCoverage > 0 ? theme.accent : theme.text,
-                                opacity,
-                                transform: [ { rotate: `${degrees}deg` } ]
-                            }
-                        ]}
+            <Svg width={width} height={height} style={frame}>
+                <Path
+                    d={arcPath(centerX, centerY, radius, WATCH_ARC_START, WATCH_ARC_END)}
+                    stroke={theme.text}
+                    strokeOpacity={0.12}
+                    strokeWidth={WATCH_ARC_STROKE}
+                    strokeLinecap="round"
+                    fill="none"
+                />
+            </Svg>
+            <Animated.View style={[ frame, { transform: [ { rotate } ] } ]}>
+                <Svg width={width} height={height}>
+                    <Path
+                        d={arcPath(centerX, centerY, radius, WATCH_ARC_START, WATCH_ARC_START + thumbSweep)}
+                        stroke={theme.accent}
+                        strokeWidth={WATCH_ARC_STROKE}
+                        strokeLinecap="round"
+                        fill="none"
                     />
-                );
-            })}
+                </Svg>
+            </Animated.View>
         </View>
     );
 }
@@ -751,11 +761,6 @@ const styles = StyleSheet.create({
         right: 0,
         bottom: 0,
         left: 0
-    },
-    watchArcScrollIndicatorSegment: {
-        position: 'absolute',
-        borderRadius: 999,
-        overflow: 'hidden'
     },
     card: {
         borderWidth: StyleSheet.hairlineWidth,

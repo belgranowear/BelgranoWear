@@ -82,7 +82,6 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
     const pendingScrollRef = useRef(true);
     const [ viewportHeight, setViewportHeight ] = useState(0);
     const [ contentHeight, setContentHeight ]   = useState(0);
-    const [ scrollOffset, setScrollOffset ]     = useState(0);
 
     const rotary        = useRotaryScroll(scrollRef, { enabled: responsive.isWatch && isFocused });
     const edgeMetrics   = useEdgeButtonMetrics();
@@ -149,7 +148,6 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
             useNativeDriver: true,
             listener: event => {
                 if (rotary?.onScroll) { rotary.onScroll(event); }
-                if (UI.WatchArcScrollIndicator) { setScrollOffset(event.nativeEvent.contentOffset.y); }
             }
         }
     );
@@ -303,7 +301,7 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
                     <ArcIndicator
                         contentHeight={contentHeight}
                         responsive={responsive}
-                        scrollOffset={scrollOffset}
+                        scrollY={scrollY}
                         theme={theme}
                         viewportHeight={viewportHeight}
                     />

@@ -251,7 +251,7 @@ export default function TripDetail({ route }) {
                     <WatchArcScrollIndicator
                         contentHeight={tracker.contentHeight}
                         viewportHeight={tracker.viewportHeight}
-                        scrollOffset={tracker.scrollOffset}
+                        scrollY={tracker.scrollY}
                     />
                 ) : null}
                 {canFollow ? (
