@@ -3,11 +3,23 @@ export default {
     en: {
         screenFullScheduleName: 'Full schedule',
         screenTripDetailName: 'Trip',
-        screenRemindersName: 'Reminders'
+        screenRemindersName: 'Reminders',
+        navDestinationsLabel: 'Destinations',
+        navRemindersLabel: 'Reminders',
+        navSettingsLabel: 'Settings',
+        navAboutLabel: 'About',
+        navRailLabel: 'Main navigation',
+        navMoreOptionsLabel: 'More options'
     },
     es: {
         screenFullScheduleName: 'Horario completo',
         screenTripDetailName: 'Viaje',
-        screenRemindersName: 'Recordatorios'
+        screenRemindersName: 'Recordatorios',
+        navDestinationsLabel: 'Destinos',
+        navRemindersLabel: 'Recordatorios',
+        navSettingsLabel: 'Ajustes',
+        navAboutLabel: 'Acerca de',
+        navRailLabel: 'Navegación principal',
+        navMoreOptionsLabel: 'Más opciones'
     }
 };
