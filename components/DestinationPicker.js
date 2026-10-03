@@ -173,7 +173,7 @@ function OriginBar({ station, onChange, navigation, distanceMeters, isOffline, s
                     compact
                     onPress={onChange}
                     accessibilityLabel={label}
-                    style={styles.originChangeButton}
+                    style={[ styles.originChangeButton, { borderRadius: theme.shape.full } ]}
                     contentStyle={dense ? styles.originChangeContentDense : styles.originChangeContent}
                 >
                     {Lang.t('pickerChangeOriginShortLabel')}
