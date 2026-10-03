@@ -17,7 +17,7 @@ import {
 import Lang from '../includes/Lang';
 import { useTheme } from '../includes/Theme';
 
-import { AppScreen, TransitCard, useResponsiveMetrics } from './ui';
+import { AppScreen, useResponsiveMetrics } from './ui';
 
 const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
 
@@ -53,6 +53,22 @@ function WatchThemeOption({ mode, label, selected, onPress }) {
                 {selected ? '✓' : ''}
             </Text>
         </Pressable>
+    );
+}
+
+// M3 grouped list section: label above a tonal surface container instead of an outlined card.
+function SettingsGroup({ title, children }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={styles.group}>
+            <Text variant="labelLarge" style={[ styles.groupTitle, theme.type.emphasized.label, { color: theme.roles.primary } ]}>
+                {title}
+            </Text>
+            <View style={[ styles.groupSurface, { backgroundColor: theme.roles.surfaceContainerLow, borderRadius: theme.shape.lg } ]}>
+                {children}
+            </View>
+        </View>
     );
 }
 
@@ -93,6 +109,24 @@ export default function Settings({ navigation }) {
                 </View>
 
                 <Pressable
+                    onPress={() => navigation.navigate('Reminders')}
+                    accessibilityRole="button"
+                    accessibilityLabel={Lang.t('settingsRemindersRowTitle')}
+                    accessibilityHint={Lang.t('settingsRemindersRowDescription')}
+                    style={({ pressed }) => [
+                        styles.watchAboutButton,
+                        {
+                            backgroundColor: theme.accentSoft,
+                            opacity: pressed ? 0.72 : 1
+                        }
+                    ]}
+                >
+                    <Text numberOfLines={1} style={[ styles.watchAboutText, { color: theme.accentStrong } ]}>
+                        {Lang.t('settingsRemindersRowTitle')}
+                    </Text>
+                </Pressable>
+
+                <Pressable
                     onPress={() => navigation.navigate('About')}
                     accessibilityRole="button"
                     accessibilityLabel={Lang.t('settingsAboutRowTitle')}
@@ -117,48 +151,68 @@ export default function Settings({ navigation }) {
 
     return (
         <AppScreen contentStyle={styles.stack}>
-            <TransitCard>
-                <Text variant="headlineSmall" style={styles.title}>
-                    BelgranoWear
-                </Text>
-                <Text variant="bodyMedium">
-                    {Lang.t('settingsSubtitle')}
-                </Text>
-                <Text variant="labelLarge">
-                    {Lang.t('appVersionLabel').replace('%s', appVersion)}
-                </Text>
-            </TransitCard>
+            <View style={styles.column}>
+                <View style={styles.header}>
+                    <Text variant="headlineSmall" style={[ styles.title, theme.type.emphasized.headline ]}>
+                        BelgranoWear
+                    </Text>
+                    <Text variant="bodyMedium" style={{ color: theme.textMuted }}>
+                        {Lang.t('settingsSubtitle')}
+                    </Text>
+                    <Text variant="labelMedium" style={{ color: theme.textMuted }}>
+                        {Lang.t('appVersionLabel').replace('%s', appVersion)}
+                    </Text>
+                </View>
 
-            <TransitCard>
-                <Text variant="titleMedium" style={styles.sectionTitle}>
-                    {Lang.t('settingsThemeSectionTitle')}
-                </Text>
-                <Text variant="bodyMedium">
-                    {Lang.t('settingsThemeSectionDescription')}
-                </Text>
-                <SegmentedButtons
-                    value={themeMode}
-                    onValueChange={setThemeMode}
-                    buttons={[
-                        { value: 'system', label: Lang.t('themeModeSystem') },
-                        { value: 'light',  label: Lang.t('themeModeLight')  },
-                        { value: 'dark',   label: Lang.t('themeModeDark')   }
-                    ]}
-                />
-            </TransitCard>
+                <SettingsGroup title={Lang.t('settingsAppearanceSectionTitle')}>
+                    <View style={styles.groupPadding}>
+                        <Text variant="titleMedium" style={styles.sectionTitle}>
+                            {Lang.t('settingsThemeSectionTitle')}
+                        </Text>
+                        <Text variant="bodyMedium" style={{ color: theme.textMuted }}>
+                            {Lang.t('settingsThemeSectionDescription')}
+                        </Text>
+                        <SegmentedButtons
+                            value={themeMode}
+                            onValueChange={setThemeMode}
+                            buttons={[
+                                { value: 'system', label: Lang.t('themeModeSystem'), icon: 'theme-light-dark' },
+                                { value: 'light',  label: Lang.t('themeModeLight'),  icon: 'white-balance-sunny' },
+                                { value: 'dark',   label: Lang.t('themeModeDark'),   icon: 'weather-night' }
+                            ]}
+                            style={styles.segmented}
+                        />
+                    </View>
+                </SettingsGroup>
 
-            <TransitCard>
-                <List.Item
-                    title={Lang.t('settingsAboutRowTitle')}
-                    description={Lang.t('settingsAboutRowDescription')}
-                    left={props => <List.Icon {...props} icon="information-outline" />}
-                    right={props => <List.Icon {...props} icon="chevron-right" />}
-                    onPress={() => navigation.navigate('About')}
-                    accessibilityRole="button"
-                    accessibilityHint={Lang.t('settingsAboutRowDescription')}
-                    style={styles.listItem}
-                />
-            </TransitCard>
+                <SettingsGroup title={Lang.t('settingsNotificationsSectionTitle')}>
+                    <List.Item
+                        title={Lang.t('settingsRemindersRowTitle')}
+                        description={Lang.t('settingsRemindersRowDescription')}
+                        left={props => <List.Icon {...props} icon="bell-ring-outline" />}
+                        right={props => <List.Icon {...props} icon="chevron-right" />}
+                        onPress={() => navigation.navigate('Reminders')}
+                        accessibilityRole="button"
+                        accessibilityHint={Lang.t('settingsRemindersRowDescription')}
+                        titleStyle={styles.rowTitle}
+                        style={styles.listItem}
+                    />
+                </SettingsGroup>
+
+                <SettingsGroup title={Lang.t('settingsInformationSectionTitle')}>
+                    <List.Item
+                        title={Lang.t('settingsAboutRowTitle')}
+                        description={Lang.t('settingsAboutRowDescription')}
+                        left={props => <List.Icon {...props} icon="information-outline" />}
+                        right={props => <List.Icon {...props} icon="chevron-right" />}
+                        onPress={() => navigation.navigate('About')}
+                        accessibilityRole="button"
+                        accessibilityHint={Lang.t('settingsAboutRowDescription')}
+                        titleStyle={styles.rowTitle}
+                        style={styles.listItem}
+                    />
+                </SettingsGroup>
+            </View>
         </AppScreen>
     );
 }
@@ -167,6 +221,35 @@ const styles = StyleSheet.create({
     stack: {
         gap: 12
     },
+    column: {
+        width: '100%',
+        maxWidth: 680,
+        alignSelf: 'center',
+        gap: 20
+    },
+    header: {
+        gap: 4,
+        paddingHorizontal: 4
+    },
+    group: {
+        gap: 8
+    },
+    groupTitle: {
+        paddingHorizontal: 16
+    },
+    groupSurface: {
+        overflow: 'hidden'
+    },
+    groupPadding: {
+        padding: 16,
+        gap: 8
+    },
+    segmented: {
+        marginTop: 8
+    },
+    rowTitle: {
+        fontWeight: '700'
+    },
     title: {
         fontWeight: '900'
     },
@@ -174,7 +257,10 @@ const styles = StyleSheet.create({
         fontWeight: '800'
     },
     listItem: {
-        paddingHorizontal: 0
+        paddingLeft: 8,
+        paddingRight: 8,
+        minHeight: 64,
+        justifyContent: 'center'
     },
     watchStack: {
         alignItems: 'center',

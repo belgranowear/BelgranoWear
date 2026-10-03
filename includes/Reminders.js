@@ -82,7 +82,20 @@ const tooSoonResult     = () => buildResult(false, 'too-soon', 'reminderUnavaila
 const unsupportedResult = () => buildResult(false, 'unsupported', 'reminderPlatformUnsupportedMessage', 'reminderPlatformUnsupportedShortMessage');
 const failedResult      = () => buildResult(false, 'failed', 'reminderSchedulingFailedMessage', 'reminderSchedulingFailedShortMessage');
 
-const isTooSoon = departureAt => departureAt - REMINDER_LEAD_MS <= Date.now() + MIN_SCHEDULE_DELAY_MS;
+// Absolute time (ms) a one-off reminder fires: an explicit fireAt wins, else departure minus leadMinutes (default 5).
+const resolveFireAt = (departureAt, { fireAt, leadMinutes } = {}) => {
+    const explicit = fireAt != null ? Number(fireAt.valueOf()) : NaN;
+
+    if (Number.isFinite(explicit)) { return Math.min(explicit, departureAt); }
+
+    const leadMs = Number.isFinite(Number(leadMinutes)) && Number(leadMinutes) >= 0
+        ? Number(leadMinutes) * 60 * 1000
+        : REMINDER_LEAD_MS;
+
+    return departureAt - leadMs;
+};
+
+const isTooSoon = fireAtMs => fireAtMs <= Date.now() + MIN_SCHEDULE_DELAY_MS;
 
 // Resolves to 'granted', 'denied' (can ask again) or 'blocked' (only fixable from the system settings).
 const ensureNotificationPermissions = async (notifications, requestPermissions) => {
@@ -192,6 +205,176 @@ const handleNotificationResponse = response => {
     flushPendingRoute();
 };
 
+// --- F5 weekly reminders ---
+
+const MINUTES_PER_DAY = 24 * 60;
+
+const parseClock = time => {
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(time || ''));
+
+    return match ? { hour: Number(match[1]), minute: Number(match[2]) } : null;
+};
+
+// App weekdays are 1=Mon…7=Sun; expo-notifications' weekly trigger uses 1=Sun…7=Sat.
+const toExpoWeekday = weekday => (weekday % 7) + 1;
+
+// One trigger per chosen weekday at (time - leadMinutes), moving to the previous day when that crosses midnight.
+export const computeWeeklyTriggers = ({ weekdays, time, leadMinutes }) => {
+    const clock = parseClock(time);
+
+    if (!clock || !Array.isArray(weekdays)) { return []; }
+
+    let totalMinutes = (clock.hour * 60) + clock.minute - (Number(leadMinutes) || 0);
+    let dayShift     = 0;
+
+    while (totalMinutes < 0) {
+        totalMinutes += MINUTES_PER_DAY;
+        dayShift--;
+    }
+
+    const days = [ ...new Set(weekdays.map(Number).filter(day => Number.isInteger(day) && day >= 1 && day <= 7)) ];
+
+    return days.map(weekday => {
+        const shiftedWeekday = ((((weekday - 1 + dayShift) % 7) + 7) % 7) + 1;
+
+        return {
+            weekday:     shiftedWeekday,
+            expoWeekday: toExpoWeekday(shiftedWeekday),
+            hour:        Math.floor(totalMinutes / 60),
+            minute:      totalMinutes % 60
+        };
+    });
+};
+
+const createWeeklyId = () => `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+const buildWeeklyReminderBody = reminder => Lang.t('reminderAlertBody')
+    .replace('%s', reminder.origin.title)
+    .replace('%s', reminder.destination.title)
+    .replace('%s', reminder.time);
+
+const cancelNotifications = async (notifications, identifiers) => {
+    if (!notifications || !Array.isArray(identifiers)) { return; }
+
+    for (const identifier of identifiers) {
+        await cancelNotification(notifications, identifier);
+    }
+};
+
+const isValidWeeklyInput = value => Boolean(
+    value
+    && value.origin?.id != null
+    && value.destination?.id != null
+    && String(value.origin.id) !== String(value.destination.id)
+    && parseClock(value.time)
+    && Array.isArray(value.weekdays)
+    && value.weekdays.length > 0
+);
+
+// Schedules (or unschedules, when disabled) a weekly reminder and persists its definition.
+// Callers must hold the reminder lock. The definition is always saved when valid, even if the
+// OS can't deliver notifications, so the list survives and can be re-enabled later.
+const applyWeeklyReminder = async (value, { requestPermissions = true } = {}) => {
+    if (!isValidWeeklyInput(value)) {
+        return buildResult(false, 'invalid', 'weeklyReminderInvalidMessage', 'weeklyReminderInvalidMessage');
+    }
+
+    const id       = value.id || createWeeklyId();
+    const existing = await Preferences.getWeeklyReminder(id);
+    const enabled  = value.enabled !== false;
+    const base     = {
+        id,
+        origin:      { id: String(value.origin.id),      title: value.origin.title      },
+        destination: { id: String(value.destination.id), title: value.destination.title },
+        weekdays:    value.weekdays,
+        time:        value.time,
+        leadMinutes: value.leadMinutes,
+        enabled
+    };
+
+    const persist = async (patch, result) => {
+        const reminder = await Preferences.saveWeeklyReminder({ ...base, ...patch });
+
+        if (!reminder) { return failedResult(); }
+
+        return { ...result, reminder };
+    };
+
+    const notifications = supportsNativeNotifications() ? await loadNotifications().catch(() => null) : null;
+
+    if (existing?.notificationIds?.length) { await cancelNotifications(notifications, existing.notificationIds); }
+
+    if (!enabled) {
+        return persist({ notificationIds: [] }, buildResult(true, 'disabled', 'weeklyReminderDisabledMessage'));
+    }
+
+    if (!notifications) {
+        return persist({ notificationIds: [] }, buildResult(false, 'unsupported', 'weeklyReminderUnsupportedMessage', 'reminderPlatformUnsupportedShortMessage', { saved: true }));
+    }
+
+    try {
+        const permission = await ensureNotificationPermissions(notifications, requestPermissions);
+
+        if (permission === 'blocked') {
+            return persist({ enabled: false, notificationIds: [] }, buildResult(false, 'blocked', 'notificationPermissionBlockedMessage', 'notificationPermissionBlockedShortMessage', {
+                action: REMINDER_ACTIONS.OPEN_SETTINGS,
+                saved:  true
+            }));
+        }
+
+        if (permission !== 'granted') {
+            return persist({ enabled: false, notificationIds: [] }, buildResult(false, 'denied', 'notificationPermissionDeniedMessage', 'notificationPermissionDeniedShortMessage', { saved: true }));
+        }
+
+        const triggers        = computeWeeklyTriggers(base);
+        const notificationIds = [];
+
+        try {
+            for (const trigger of triggers) {
+                notificationIds.push(await notifications.scheduleNotificationAsync({
+                    content: {
+                        title: Lang.t('reminderAlertTitle'),
+                        body:  buildWeeklyReminderBody(base),
+                        data:  {
+                            originId:         base.origin.id,
+                            destinationId:    base.destination.id,
+                            weeklyReminderId: id,
+                            departureClock:   base.time
+                        }
+                    },
+                    trigger: {
+                        type:      notifications.SchedulableTriggerInputTypes.WEEKLY,
+                        weekday:   trigger.expoWeekday,
+                        hour:      trigger.hour,
+                        minute:    trigger.minute,
+                        channelId: CHANNEL_ID
+                    }
+                }));
+            }
+        } catch (exception) {
+            await cancelNotifications(notifications, notificationIds);
+
+            throw exception;
+        }
+
+        const hint = await consumeExactAlarmHint();
+
+        return persist({ notificationIds }, hint
+            ? buildResult(true, 'set', 'reminderExactAlarmHintMessage', 'reminderExactAlarmHintShortMessage', { action: REMINDER_ACTIONS.EXACT_ALARM_SETTINGS })
+            : buildResult(true, 'set', 'weeklyReminderSavedMessage', 'reminderSetShortMessage'));
+    } catch (exception) {
+        console.warn('Reminders: couldn\'t schedule weekly reminder:', exception);
+
+        return persist({ enabled: false, notificationIds: [] }, { ...failedResult(), saved: true });
+    }
+};
+
+const sortWeeklyReminders = reminders => [ ...reminders ].sort((left, right) => (
+    left.time.localeCompare(right.time)
+    || left.origin.title.localeCompare(right.origin.title)
+    || left.createdAt - right.createdAt
+));
+
 const Reminders = {
     // Registers the foreground handler and tap routing at startup (native only), including the tap that cold-started the app.
     initialize: () => {
@@ -248,10 +431,12 @@ const Reminders = {
         return { id: reminder.id, departureAt: Number.isFinite(departureAt) ? departureAt : null };
     }),
 
-    scheduleDepartureReminder: ({ origin, destination, departureTime, requestPermissions = true }) => withReminderLock(async () => {
+    // Optional `fireAt` (Date/moment/ms) or `leadMinutes` override the default "5 min before departure" alert time.
+    scheduleDepartureReminder: ({ origin, destination, departureTime, requestPermissions = true, fireAt, leadMinutes }) => withReminderLock(async () => {
         const departureAt = departureTime.valueOf();
+        const fireAtMs    = resolveFireAt(departureAt, { fireAt, leadMinutes });
 
-        if (isTooSoon(departureAt)) { return tooSoonResult(); }
+        if (isTooSoon(fireAtMs)) { return tooSoonResult(); }
 
         try {
             const notifications = await loadNotifications();
@@ -271,7 +456,7 @@ const Reminders = {
             }
 
             // Checked again after the permission prompts, since time spent in them must not shift the reminder.
-            if (isTooSoon(departureAt)) { return tooSoonResult(); }
+            if (isTooSoon(fireAtMs)) { return tooSoonResult(); }
 
             const existing = await Preferences.getReminder(origin, destination);
 
@@ -289,7 +474,7 @@ const Reminders = {
                 },
                 trigger: {
                     type: notifications.SchedulableTriggerInputTypes.DATE,
-                    date: departureAt - REMINDER_LEAD_MS,
+                    date: fireAtMs,
                     channelId: CHANNEL_ID
                 }
             });
@@ -328,6 +513,65 @@ const Reminders = {
             await Preferences.removeReminder(origin, destination);
 
             return buildResult(false, 'failed', 'reminderCanceledMessage');
+        }
+    }),
+
+    // --- F5 weekly reminders. Definitions: { id, origin, destination, weekdays (1=Mon…7=Sun), time 'HH:mm', leadMinutes, enabled, notificationIds }.
+
+    isWeeklySupported: () => supportsNativeNotifications(),
+
+    listWeekly: async () => sortWeeklyReminders(await Preferences.getWeeklyReminders()),
+
+    // Creates or replaces (when id is given) a weekly reminder. Resolves to a result like scheduleDepartureReminder's,
+    // plus `reminder` (the stored definition) and `saved` when the definition was kept despite a scheduling problem.
+    scheduleWeekly: ({ requestPermissions = true, ...value }) => withReminderLock(() => applyWeeklyReminder(value, { requestPermissions })),
+
+    cancelWeekly: id => withReminderLock(async () => {
+        try {
+            const existing = await Preferences.getWeeklyReminder(id);
+
+            if (existing?.notificationIds?.length) {
+                await cancelNotifications(await loadNotifications().catch(() => null), existing.notificationIds);
+            }
+        } catch (exception) {
+            console.warn('Reminders: failed to cancel weekly reminder:', exception);
+        }
+
+        await Preferences.removeWeeklyReminder(id);
+
+        return buildResult(true, 'canceled', 'weeklyReminderDeletedMessage');
+    }),
+
+    setWeeklyEnabled: (id, enabled, { requestPermissions = true } = {}) => withReminderLock(async () => {
+        const existing = await Preferences.getWeeklyReminder(id);
+
+        if (!existing) { return buildResult(false, 'missing', 'weeklyReminderInvalidMessage'); }
+
+        return applyWeeklyReminder({ ...existing, enabled: Boolean(enabled) }, { requestPermissions });
+    }),
+
+    // Re-schedules enabled reminders whose OS notifications went missing (app data restore, OS cleanup). Never prompts.
+    syncWeekly: () => withReminderLock(async () => {
+        if (!supportsNativeNotifications()) { return; }
+
+        try {
+            const notifications = await loadNotifications();
+
+            if (!notifications) { return; }
+
+            const scheduled = new Set((await notifications.getAllScheduledNotificationsAsync()).map(request => request.identifier));
+            const reminders = await Preferences.getWeeklyReminders();
+
+            for (const reminder of reminders) {
+                if (!reminder.enabled) { continue; }
+
+                const expected = computeWeeklyTriggers(reminder).length;
+                const missing  = reminder.notificationIds.length !== expected || reminder.notificationIds.some(identifier => !scheduled.has(identifier));
+
+                if (missing) { await applyWeeklyReminder(reminder, { requestPermissions: false }); }
+            }
+        } catch (exception) {
+            console.warn('Reminders: couldn\'t sync weekly reminders:', exception);
         }
     }),
 

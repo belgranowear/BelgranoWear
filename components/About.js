@@ -20,7 +20,7 @@ import Lang from '../includes/Lang';
 import OpenSourceLibraries from '../includes/OpenSourceLibraries';
 import { useTheme } from '../includes/Theme';
 
-import { AppScreen, TransitCard, useResponsiveMetrics } from './ui';
+import { AppScreen, useResponsiveMetrics } from './ui';
 
 const APP_REPOSITORY_URL = 'https://github.com/belgranowear/BelgranoWear';
 const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
@@ -126,65 +126,68 @@ export default function About() {
     }
 
     return (
-        <AppScreen contentStyle={styles.stack}>
-            <TransitCard>
-                <Text variant="headlineSmall" style={styles.title}>
-                    {Lang.t('aboutAppTitle')}
-                </Text>
-                <Text variant="bodyLarge">
-                    {Lang.t('aboutDescription')}
-                </Text>
-                <Text variant="bodyMedium" style={styles.emphasis}>
-                    {Lang.t('aboutCreatorLabel').replace('%s', 'Facundo Montero')}
-                </Text>
-                <Text variant="labelLarge">
-                    {Lang.t('appVersionLabel').replace('%s', appVersion)}
-                </Text>
-                <Button
-                    mode="contained-tonal"
-                    icon="github"
-                    onPress={() => openURL(APP_REPOSITORY_URL)}
-                    accessibilityLabel={Lang.t('aboutOpenRepositoryLabel')}
-                >
-                    {Lang.t('aboutRepositoryLabel')}
-                </Button>
-            </TransitCard>
+        <AppScreen contentStyle={styles.stack} contentWidth="wide">
+            <View style={styles.column}>
+                <View style={[ styles.hero, { backgroundColor: theme.roles.surfaceContainerLow, borderRadius: theme.shape.xl } ]}>
+                    <Text variant="headlineSmall" style={[ styles.title, theme.type.emphasized.headline ]}>
+                        {Lang.t('aboutAppTitle')}
+                    </Text>
+                    <Text variant="bodyLarge">
+                        {Lang.t('aboutDescription')}
+                    </Text>
+                    <Text variant="bodyMedium" style={styles.emphasis}>
+                        {Lang.t('aboutCreatorLabel').replace('%s', 'Facundo Montero')}
+                    </Text>
+                    <Text variant="labelLarge" style={{ color: theme.textMuted }}>
+                        {Lang.t('appVersionLabel').replace('%s', appVersion)}
+                    </Text>
+                    <Button
+                        mode="contained-tonal"
+                        icon="github"
+                        onPress={() => openURL(APP_REPOSITORY_URL)}
+                        accessibilityLabel={Lang.t('aboutOpenRepositoryLabel')}
+                        style={styles.repoButton}
+                    >
+                        {Lang.t('aboutRepositoryLabel')}
+                    </Button>
+                </View>
 
-            <TransitCard>
-                <Text variant="titleMedium" style={styles.sectionTitle}>
-                    {Lang.t('aboutAcknowledgementsTitle')}
-                </Text>
-                <Text variant="bodyMedium">
-                    {Lang.t('aboutAcknowledgementsDescription')}
-                </Text>
-            </TransitCard>
+                <View style={styles.acknowledgements}>
+                    <Text variant="titleMedium" style={[ styles.sectionTitle, theme.type.emphasized.title ]}>
+                        {Lang.t('aboutAcknowledgementsTitle')}
+                    </Text>
+                    <Text variant="bodyMedium" style={{ color: theme.textMuted }}>
+                        {Lang.t('aboutAcknowledgementsDescription')}
+                    </Text>
+                </View>
 
-            {OpenSourceLibraries.map(group => (
-                <TransitCard key={group.categoryKey}>
-                    <List.Section style={styles.librarySection}>
-                        <List.Subheader style={styles.librarySubheader}>
+                {OpenSourceLibraries.map(group => (
+                    <View key={group.categoryKey} style={styles.group}>
+                        <Text variant="labelLarge" style={[ styles.groupTitle, theme.type.emphasized.label, { color: theme.roles.primary } ]}>
                             {Lang.t(group.categoryKey)}
-                        </List.Subheader>
-                        {group.items.map((library, index) => (
-                            <View key={library.name}>
-                                <List.Item
-                                    title={library.name}
-                                    description={libraryDescription(library)}
-                                    left={props => <List.Icon {...props} icon="code-tags" />}
-                                    right={props => <List.Icon {...props} icon="open-in-new" />}
-                                    onPress={() => openURL(library.url)}
-                                    accessibilityRole="link"
-                                    accessibilityHint={Lang.t('aboutLibraryLinkHint').replace('%s', library.name)}
-                                    titleNumberOfLines={2}
-                                    descriptionNumberOfLines={2}
-                                    style={styles.libraryItem}
-                                />
-                                {index < group.items.length - 1 ? <Divider /> : null}
-                            </View>
-                        ))}
-                    </List.Section>
-                </TransitCard>
-            ))}
+                        </Text>
+                        <View style={[ styles.groupSurface, { backgroundColor: theme.roles.surfaceContainerLow, borderRadius: theme.shape.lg } ]}>
+                            {group.items.map((library, index) => (
+                                <View key={library.name}>
+                                    <List.Item
+                                        title={library.name}
+                                        description={libraryDescription(library)}
+                                        left={props => <List.Icon {...props} icon="code-tags" />}
+                                        right={props => <List.Icon {...props} icon="open-in-new" />}
+                                        onPress={() => openURL(library.url)}
+                                        accessibilityRole="link"
+                                        accessibilityHint={Lang.t('aboutLibraryLinkHint').replace('%s', library.name)}
+                                        titleNumberOfLines={2}
+                                        descriptionNumberOfLines={2}
+                                        style={styles.libraryItem}
+                                    />
+                                    {index < group.items.length - 1 ? <Divider style={{ backgroundColor: theme.roles.outlineVariant }} /> : null}
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                ))}
+            </View>
         </AppScreen>
     );
 }
@@ -202,16 +205,35 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontWeight: '800'
     },
-    librarySection: {
-        marginTop: 0,
-        marginBottom: 0
+    column: {
+        width: '100%',
+        maxWidth: 800,
+        alignSelf: 'center',
+        gap: 20
     },
-    librarySubheader: {
-        paddingHorizontal: 0,
-        fontWeight: '800'
+    hero: {
+        padding: 20,
+        gap: 8
+    },
+    repoButton: {
+        alignSelf: 'flex-start',
+        marginTop: 4
+    },
+    acknowledgements: {
+        gap: 4,
+        paddingHorizontal: 4
+    },
+    group: {
+        gap: 8
+    },
+    groupTitle: {
+        paddingHorizontal: 16
+    },
+    groupSurface: {
+        overflow: 'hidden'
     },
     libraryItem: {
-        paddingHorizontal: 0
+        paddingHorizontal: 8
     },
     watchStack: {
         alignItems: 'center',
