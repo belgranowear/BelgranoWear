@@ -105,39 +105,36 @@ function ReminderRow({ reminder, onToggle, onEdit, onDelete, busy }) {
     const { theme } = useTheme();
     const route     = formatRoute(reminder);
 
+    // The edit target and the switch/delete actions are siblings: on web a Pressable renders a
+    // <button>, and buttons can't be nested.
     return (
-        <Pressable
-            onPress={() => onEdit(reminder)}
-            accessibilityRole="button"
-            accessibilityLabel={`${reminder.time}, ${route}, ${formatWeekdays(reminder.weekdays)}`}
-            accessibilityHint={Lang.t('reminderEditHint')}
-            style={({ pressed }) => [
-                styles.row,
-                {
-                    backgroundColor: theme.roles.surfaceContainerLow,
-                    borderRadius:    theme.shape.lg,
-                    opacity:         pressed ? 0.8 : 1
-                }
-            ]}
-        >
-            <View style={[ styles.rowIcon, { backgroundColor: reminder.enabled ? theme.roles.primaryContainer : theme.roles.surfaceContainerHighest } ]}>
-                <Icon source="bell-ring-outline" size={22} color={reminder.enabled ? theme.roles.primary : theme.textMuted} />
-            </View>
-
-            <View style={styles.rowBody}>
-                <View style={styles.rowTitleLine}>
-                    <Text variant="headlineSmall" style={[ styles.rowTime, theme.type.emphasized.headline, { color: reminder.enabled ? theme.text : theme.textMuted } ]}>
-                        {reminder.time}
-                    </Text>
-                    <Text variant="labelMedium" style={{ color: theme.textMuted }}>
-                        {reminder.enabled
-                            ? Lang.t('reminderLeadSummary').replace('%s', reminder.leadMinutes)
-                            : Lang.t('reminderOffLabel')}
-                    </Text>
+        <View style={[ styles.row, { backgroundColor: theme.roles.surfaceContainerLow, borderRadius: theme.shape.lg } ]}>
+            <Pressable
+                onPress={() => onEdit(reminder)}
+                accessibilityRole="button"
+                accessibilityLabel={`${reminder.time}, ${route}, ${formatWeekdays(reminder.weekdays)}`}
+                accessibilityHint={Lang.t('reminderEditHint')}
+                style={({ pressed }) => [ styles.rowMain, { opacity: pressed ? 0.8 : 1 } ]}
+            >
+                <View style={[ styles.rowIcon, { backgroundColor: reminder.enabled ? theme.roles.primaryContainer : theme.roles.surfaceContainerHighest } ]}>
+                    <Icon source="bell-ring-outline" size={22} color={reminder.enabled ? theme.roles.primary : theme.textMuted} />
                 </View>
-                <Text variant="bodyMedium" numberOfLines={2} style={{ color: theme.text }}>{route}</Text>
-                <DayLetters weekdays={reminder.weekdays} enabled={reminder.enabled} />
-            </View>
+    
+                <View style={styles.rowBody}>
+                    <View style={styles.rowTitleLine}>
+                        <Text variant="headlineSmall" style={[ styles.rowTime, theme.type.emphasized.headline, { color: reminder.enabled ? theme.text : theme.textMuted } ]}>
+                            {reminder.time}
+                        </Text>
+                        <Text variant="labelMedium" style={{ color: theme.textMuted }}>
+                            {reminder.enabled
+                                ? Lang.t('reminderLeadSummary').replace('%s', reminder.leadMinutes)
+                                : Lang.t('reminderOffLabel')}
+                        </Text>
+                    </View>
+                    <Text variant="bodyMedium" numberOfLines={2} style={{ color: theme.text }}>{route}</Text>
+                    <DayLetters weekdays={reminder.weekdays} enabled={reminder.enabled} />
+                </View>
+            </Pressable>
 
             <View style={styles.rowActions}>
                 <Switch
@@ -154,7 +151,7 @@ function ReminderRow({ reminder, onToggle, onEdit, onDelete, busy }) {
                     style={styles.rowDelete}
                 />
             </View>
-        </Pressable>
+        </View>
     );
 }
 
@@ -490,6 +487,14 @@ const styles = StyleSheet.create({
         paddingLeft:    16,
         paddingRight:   4,
         minHeight:      88
+    },
+    rowMain: {
+        flex:          1,
+        minWidth:      0,
+        flexDirection: 'row',
+        alignItems:    'center',
+        gap:           12,
+        alignSelf:     'stretch'
     },
     rowIcon: {
         width:          40,

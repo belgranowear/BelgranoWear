@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-import { IconButton, Menu } from 'react-native-paper';
+import { IconButton } from 'react-native-paper';
+
+import LazyMenu from './LazyMenu';
 
 import { useTheme } from '../../includes/Theme';
 
@@ -16,7 +18,7 @@ export default function HeaderOverflowMenu({ items, accessibilityLabel }) {
     const [ visible, setVisible ] = useState(false);
 
     return (
-        <Menu
+        <LazyMenu
             visible={visible}
             onDismiss={() => setVisible(false)}
             anchorPosition="bottom"
@@ -34,7 +36,7 @@ export default function HeaderOverflowMenu({ items, accessibilityLabel }) {
             )}
         >
             {items.map(item => (
-                <Menu.Item
+                <LazyMenu.Item
                     key={item.key}
                     leadingIcon={item.icon}
                     title={item.label}
@@ -44,6 +46,6 @@ export default function HeaderOverflowMenu({ items, accessibilityLabel }) {
                     }}
                 />
             ))}
-        </Menu>
+        </LazyMenu>
     );
 }

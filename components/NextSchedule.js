@@ -18,7 +18,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import {
   Button,
-  Menu,
   Text
 } from 'react-native-paper';
 
@@ -51,6 +50,7 @@ import WalkEstimateCard from './WalkEstimateCard';
 import CurvedText       from './watch/CurvedText';
 import EdgeButton, * as EdgeButtonModule from './watch/EdgeButton';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
+import LazyMenu from './layout/LazyMenu';
 
 const SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT = 3;
 
@@ -1424,7 +1424,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
           <MaterialCommunityIcons name={isReminderActive ? 'bell-check-outline' : 'bell-outline'} size={22} color={reminderOnSurface} />
           <Text numberOfLines={1} style={[ styles.splitLabel, emphasizedTitle, { color: reminderOnSurface } ]}>{reminderLabel}</Text>
         </Pressable>
-        <Menu
+        <LazyMenu
           visible={isLeadMenuVisible}
           onDismiss={() => setIsLeadMenuVisible(false)}
           anchorPosition="bottom"
@@ -1451,14 +1451,14 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
           )}
         >
           {REMINDER_LEAD_OPTIONS.map(minutes => (
-            <Menu.Item
+            <LazyMenu.Item
               key={minutes}
               leadingIcon={minutes === currentLead ? 'check' : undefined}
               title={Lang.t('reminderLeadOptionLabel', { minutes })}
               onPress={() => selectReminderLead(minutes)}
             />
           ))}
-        </Menu>
+        </LazyMenu>
       </View>
     );
 
@@ -1868,7 +1868,7 @@ const styles = StyleSheet.create({
   },
   linkButton: {
     flexGrow: 1,
-    flexBasis: 160
+    flexBasis: 'auto'
   },
   linkLabel: {
     fontWeight: '700'

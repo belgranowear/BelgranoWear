@@ -66,6 +66,7 @@ export default function CurvedText({
     }
 
     const shortestSide = Math.min(width, height);
+    const fontFamily   = theme.paperTheme?.fonts?.labelMedium?.fontFamily || 'sans-serif';
     const gap          = typeof(inset) === 'number' ? inset : clamp(shortestSide * 0.025, 3, 8);
     const bandHeight   = Math.ceil(gap + (fontSize * 1.6));
     const cx           = width / 2;
@@ -88,6 +89,14 @@ export default function CurvedText({
         d = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
     }
 
+    // Only the part of the arc inside the band is visible: ellipsize to that span instead of
+    // letting glyphs run off both ends. Average glyph advance ≈ 0.56 em.
+    const arcRadius   = outer - (fontSize * (bottom ? 0.3 : 0.8));
+    const visibleCos  = clamp(((height / 2) - bandHeight) / arcRadius, -1, 1);
+    const visibleSpan = 2 * Math.acos(visibleCos) * arcRadius;
+    const maxChars    = Math.max(4, Math.floor(visibleSpan / (fontSize * 0.56)));
+    const arcValue    = value.length > maxChars ? value.slice(0, maxChars - 1).trimEnd() + '…' : value;
+
     return (
         <View
             accessible
@@ -100,9 +109,9 @@ export default function CurvedText({
                 <Defs>
                     <Path id={pathId} d={d} fill="none" />
                 </Defs>
-                <SvgText fill={textColor} fontSize={fontSize} fontWeight={fontWeight} textAnchor="middle">
+                <SvgText fill={textColor} fontSize={fontSize} fontWeight={fontWeight} fontFamily={fontFamily} textAnchor="middle">
                     <TextPath href={`#${pathId}`} startOffset="50%">
-                        {value}
+                        {arcValue}
                     </TextPath>
                 </SvgText>
             </Svg>

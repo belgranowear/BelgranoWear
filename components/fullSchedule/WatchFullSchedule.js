@@ -156,7 +156,10 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
 
     const notice = holidayNotice(schedule.today);
     const ArcIndicator = UI.WatchArcScrollIndicator;
-    const routeTitle   = `${params.origin?.title || ''} → ${params.destination?.title || ''}`;
+    // The top arc only fits ~15 glyphs on a round face, so it shows just the destination there.
+    const routeTitle   = round
+        ? `→ ${params.destination?.title || ''}`
+        : `${params.origin?.title || ''} → ${params.destination?.title || ''}`;
 
     const renderEntry = entry => {
         if (entry.type === 'hour') {
@@ -289,7 +292,7 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
                     {body}
                 </Animated.ScrollView>
 
-                <View pointerEvents="none" style={[ styles.titleBar, { top: responsive.roundTopInset, backgroundColor: theme.background } ]}>
+                <View pointerEvents="none" style={[ styles.titleBar, round ? styles.titleBarRound : { top: responsive.roundTopInset }, { backgroundColor: theme.background } ]}>
                     <CurvedText text={routeTitle} position="top" fontSize={12} color={theme.textMuted} />
                 </View>
 
@@ -326,6 +329,13 @@ const styles = StyleSheet.create({
         height: 20,
         justifyContent: 'center',
         paddingHorizontal: 24
+    },
+    // CurvedText sizes its arc from the screen radius, so on round faces it must start at the very top.
+    titleBarRound: {
+        top:               0,
+        height:            undefined,
+        paddingHorizontal: 0,
+        alignItems:        'center'
     },
     segmentRow: {
         alignItems: 'center',

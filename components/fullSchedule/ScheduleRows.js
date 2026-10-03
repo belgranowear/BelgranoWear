@@ -78,7 +78,7 @@ export const TripRow = memo(function TripRow({ item, now, height, theme, onPress
                     {formatTime(trip.departure)}
                 </Text>
                 <Text variant="bodyMedium" numberOfLines={1} style={[ styles.tabular, styles.arrival, { color: mutedColor } ]}>
-                    {trip.arrival ? `→ ${formatTime(trip.arrival)}${showWait && minutes !== null ? ` · ${minutesLabel(minutes)}` : ''}` : ''}
+                    {trip.arrival ? `→ ${formatTime(trip.arrival)}${showWait && !isNext && minutes !== null ? ` · ${minutesLabel(minutes)}` : ''}` : ''}
                 </Text>
                 {isNext ? (
                     <View style={[ styles.nextBadge, { backgroundColor: theme.background, borderRadius: theme.shape.full } ]}>
