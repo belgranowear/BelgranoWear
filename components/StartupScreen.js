@@ -72,7 +72,7 @@ export default function StartupScreen({ operation }) {
 
         return (
             <View style={[ styles.root, styles.watchRoot, { backgroundColor: theme.background } ]}>
-                <Image source={APP_ICON} accessibilityIgnoresInvertColors style={{ width: iconSize, height: iconSize, borderRadius: iconSize * 0.22 }} />
+                <Image source={APP_ICON} fadeDuration={0} accessibilityIgnoresInvertColors style={{ width: iconSize, height: iconSize, borderRadius: iconSize * 0.22 }} />
                 <Animated.View style={[ styles.watchRow, rowStyle ]}>
                     <LoadingIndicator size={32} accessibilityLabel={operation} />
                     <OperationText operation={operation} numberOfLines={2} style={styles.watchOperation} />
@@ -85,7 +85,7 @@ export default function StartupScreen({ operation }) {
 
     return (
         <View style={[ styles.root, { backgroundColor: theme.background } ]}>
-            <Image source={APP_ICON} accessibilityIgnoresInvertColors style={{ width: iconSize, height: iconSize, borderRadius: iconSize * 0.17 }} />
+            <Image source={APP_ICON} fadeDuration={0} accessibilityIgnoresInvertColors style={{ width: iconSize, height: iconSize, borderRadius: iconSize * 0.17 }} />
 
             <View pointerEvents="none" style={[ styles.titleAnchor, { marginTop: (iconSize / 2) + TITLE_GAP } ]}>
                 <Text

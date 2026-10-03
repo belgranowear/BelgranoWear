@@ -2,6 +2,7 @@
 // keys must be unique across all partials and Lang.js (later partials win).
 export default {
     en: {
+        locationServicesDisabledMessage: 'Location is turned off on this device. Turn it on to detect your station, or pick it below.',
         pickerTitle: 'Choose your destination',
         pickerOriginTitle: 'Choose your origin',
         pickerChangeOriginShortLabel: 'Change',
@@ -19,6 +20,7 @@ export default {
         pickerRecentTripA11yLabel: 'Recent: %s'
     },
     es: {
+        locationServicesDisabledMessage: 'La ubicación está desactivada en este dispositivo. Activala para detectar tu estación, o elegila abajo.',
         pickerTitle: 'Elegí tu destino',
         pickerOriginTitle: 'Elegí tu origen',
         pickerChangeOriginShortLabel: 'Cambiar',

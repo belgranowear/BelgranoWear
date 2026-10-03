@@ -845,6 +845,15 @@ export default function DestinationPicker({ navigation }) {
 
         if (!await areLocationPermissionsGranted()) { return; }
 
+        // With the system location switch off no fix (current or last known) is ever returned, so
+        // say so instead of the generic "couldn't detect" message.
+        const servicesEnabled = await Location.hasServicesEnabledAsync().catch(() => true);
+        if (!servicesEnabled) {
+            setManualOriginReason( Lang.t('locationServicesDisabledMessage') );
+            setShowManualOriginPicker(true);
+            return;
+        }
+
         let location;
 
         try {
