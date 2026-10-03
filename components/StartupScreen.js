@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 import { Animated, Image, Platform, StyleSheet, View } from 'react-native';
-import { Text } from 'react-native-paper';
+import { Button, Text } from 'react-native-paper';
 
 import Lang from '../includes/Lang';
 import { useTheme } from '../includes/Theme';
@@ -18,7 +18,34 @@ const APP_ICON        = require('../assets/splash-icon.png');
 export const STARTUP_ICON_SIZE       = 120;
 export const STARTUP_ICON_SIZE_SHORT = 88;
 export const STARTUP_ICON_SIZE_WATCH = 52;
+const STARTUP_ICON_SIZE_WATCH_COMPACT = 36;
 const TITLE_GAP = 24;
+
+// Secondary way out of a long wait (e.g. "Elegir manualmente" while the GPS looks for a fix).
+// Fades in on the effects spring when it appears, so it never pops in.
+function StartupAction({ action, compact }) {
+    const { theme } = useTheme();
+    const progress  = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.spring(progress, { toValue: 1, useNativeDriver, ...theme.motion.spring.defaultEffects }).start();
+    }, []);
+
+    return (
+        <Animated.View style={{ opacity: progress }}>
+            <Button
+                mode={compact ? 'text' : 'outlined'}
+                compact={compact}
+                icon={compact ? undefined : 'map-marker-outline'}
+                onPress={action.onPress}
+                labelStyle={compact ? styles.watchActionLabel : undefined}
+                style={compact ? styles.watchAction : styles.action}
+            >
+                {action.label}
+            </Button>
+        </Animated.View>
+    );
+}
 
 function OperationText({ operation, style, numberOfLines }) {
     const { theme } = useTheme();
@@ -52,8 +79,9 @@ function OperationText({ operation, style, numberOfLines }) {
  *
  * @param {object} props
  * @param {string} props.operation  current step, already localized.
+ * @param {{label: string, onPress: Function}} [props.action]  optional way out (e.g. skip GPS).
  */
-export default function StartupScreen({ operation }) {
+export default function StartupScreen({ operation, action }) {
     const { theme }  = useTheme();
     const responsive = useResponsiveMetrics();
     const entrance   = useRef(new Animated.Value(0)).current;
@@ -68,7 +96,8 @@ export default function StartupScreen({ operation }) {
     };
 
     if (responsive.isWatch) {
-        const iconSize = STARTUP_ICON_SIZE_WATCH;
+        // The action needs the room on a round face: the icon shrinks while it is shown.
+        const iconSize = action ? STARTUP_ICON_SIZE_WATCH_COMPACT : STARTUP_ICON_SIZE_WATCH;
 
         return (
             <View style={[ styles.root, styles.watchRoot, { backgroundColor: theme.background } ]}>
@@ -76,6 +105,7 @@ export default function StartupScreen({ operation }) {
                 <Animated.View style={[ styles.watchRow, rowStyle ]}>
                     <LoadingIndicator size={32} accessibilityLabel={operation} />
                     <OperationText operation={operation} numberOfLines={2} style={styles.watchOperation} />
+                    {action ? <StartupAction action={action} compact /> : null}
                 </Animated.View>
             </View>
         );
@@ -87,6 +117,8 @@ export default function StartupScreen({ operation }) {
         <View style={[ styles.root, { backgroundColor: theme.background } ]}>
             <Image source={APP_ICON} fadeDuration={0} accessibilityIgnoresInvertColors style={{ width: iconSize, height: iconSize, borderRadius: iconSize * 0.17 }} />
 
+            {/* On short screens (phone landscape) the action needs the title's room. */}
+            {action && responsive.isShortHeight ? null : (
             <View pointerEvents="none" style={[ styles.titleAnchor, { marginTop: (iconSize / 2) + TITLE_GAP } ]}>
                 <Text
                     variant="headlineSmall"
@@ -96,10 +128,12 @@ export default function StartupScreen({ operation }) {
                     {Lang.t('startupAppName')}
                 </Text>
             </View>
+            )}
 
             <Animated.View style={[ styles.progressRow, { bottom: responsive.isShortHeight ? 20 : '12%' }, rowStyle ]}>
                 <LoadingIndicator size={responsive.isShortHeight ? 40 : 48} accessibilityLabel={operation} />
                 <OperationText operation={operation} numberOfLines={2} />
+                {action ? <StartupAction action={action} /> : null}
             </Animated.View>
         </View>
     );
@@ -140,6 +174,16 @@ const styles = StyleSheet.create({
         alignItems:     'center',
         gap:            8,
         alignSelf:      'stretch'
+    },
+    action: {
+        marginTop:      4
+    },
+    watchAction: {
+        marginTop:      -4
+    },
+    watchActionLabel: {
+        fontSize:       13,
+        marginVertical: 6
     },
     watchOperation: {
         fontSize:       12,

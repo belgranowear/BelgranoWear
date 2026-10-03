@@ -2,7 +2,7 @@ import normalizeSpecialCharacters from 'specialtonormal';
 
 import GestureRecognizer from 'react-native-swipe-gestures';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   BackHandler,
@@ -425,6 +425,9 @@ export default function DestinationPicker({ navigation }) {
     const [ originStation,              setOriginStation              ] = useState();
     const [ originDistanceMeters,       setOriginDistanceMeters       ] = useState();
     const [ trainStationsMap,           setTrainStationsMap           ] = useState();
+    const [ waitingForGps,              setWaitingForGps              ] = useState(false);
+    // Bumped when the user skips detection, so an in-flight detection knows its result is stale.
+    const originDetectionRunRef = useRef(0);
     const [ currentOperation,           setCurrentOperation           ] = useState(Lang.t('verifyCachedResourcesMessage') + '…');
     const [ holidaysList,               setHolidaysList               ] = useState();
     const [ loadFinished,               setLoadFinished               ] = useState(false);
@@ -838,6 +841,7 @@ export default function DestinationPicker({ navigation }) {
     };
 
     const detectOriginStation = async () => {
+        const run = originDetectionRunRef.current;
         setCurrentOperation( Lang.t('detectingOriginStationMessage') + '…' );
 
         if (!Array.isArray(trainStationsMap) || trainStationsMap.length === 0) {
@@ -858,6 +862,11 @@ export default function DestinationPicker({ navigation }) {
 
         let location;
 
+        // A cold fix can take a while (up to 30 s on a watch): say what we are waiting for and
+        // offer to skip straight to the manual picker.
+        setCurrentOperation( Lang.t('searchingGpsSignalMessage') + '…' );
+        setWaitingForGps(true);
+
         try {
             // Watches usually have no network location provider. With it off, expo-location first
             // runs Play Services' "improve accuracy" settings check, which Wear OS rejects (status
@@ -866,6 +875,9 @@ export default function DestinationPicker({ navigation }) {
                 ? await tryGetCurrentPositionAsync(WATCH_GPS_FIX_TIMEOUT_MS, Location.Accuracy.High)
                 : await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
         } catch (exception) {
+            setWaitingForGps(false);
+            if (run !== originDetectionRunRef.current) { return; }
+
             console.warn('detectOriginStation: no current position, trying the last known one:', exception?.message || exception);
 
             try {
@@ -877,6 +889,11 @@ export default function DestinationPicker({ navigation }) {
                 return;
             }
         }
+
+        setWaitingForGps(false);
+
+        // The user already chose to pick the origin by hand; a late fix must not override that.
+        if (run !== originDetectionRunRef.current) { return; }
 
         if (!location) {
             setManualOriginReason( Lang.t('manualOriginFallbackMessage') );
@@ -936,6 +953,12 @@ export default function DestinationPicker({ navigation }) {
             setManualOriginReason( Lang.t('originDetectionErrorMessage') );
             setShowManualOriginPicker(true);
         }
+    };
+
+    const skipOriginDetection = () => {
+        originDetectionRunRef.current += 1;
+        setWaitingForGps(false);
+        showManualOriginPickerFallback(Lang.t('manualOriginPromptMessage'));
     };
 
     const selectOrigin = station => {
@@ -1052,6 +1075,12 @@ export default function DestinationPicker({ navigation }) {
 
             if (previewMode === 'loading' || previewMode === 'watch-loading') { return; }
 
+            if (previewMode === 'loading-gps' || previewMode === 'watch-loading-gps') {
+                setCurrentOperation(Lang.t('searchingGpsSignalMessage') + '…');
+                setWaitingForGps(true);
+                return;
+            }
+
             setOriginStation(previewState.origin);
             setOriginDistanceMeters(450);
             setLoadFinished(true);
@@ -1129,6 +1158,9 @@ export default function DestinationPicker({ navigation }) {
 
     const openManualOriginPicker = () => {
         setSearchQuery('');
+        // A deliberate change, not a detection failure: without a reason the screen falls back
+        // to the "couldn't detect your origin" message.
+        setManualOriginReason(Lang.t('manualOriginPromptMessage'));
         setShowManualOriginPicker(true);
     };
 
@@ -1208,7 +1240,12 @@ export default function DestinationPicker({ navigation }) {
     }
 
     if (showingStartup) {
-        return <StartupScreen operation={currentOperation} />;
+        return (
+            <StartupScreen
+                operation={currentOperation}
+                action={waitingForGps ? { label: Lang.t('skipOriginDetectionLabel'), onPress: skipOriginDetection } : undefined}
+            />
+        );
     }
 
     if (showManualOriginPicker && !tabletTwoPane) {
@@ -1844,8 +1881,10 @@ const styles = StyleSheet.create({
         fontWeight: '700'
     },
     watchRowTitleCentered: {
-        flex: 0,
+        // Not `flex: 0`: on web that means a 0% basis and the label collapses to zero width.
+        flexGrow: 0,
         flexShrink: 1,
+        flexBasis: 'auto',
         textAlign: 'center'
     },
     watchRowStar: {

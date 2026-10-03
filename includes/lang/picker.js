@@ -2,6 +2,9 @@
 // keys must be unique across all partials and Lang.js (later partials win).
 export default {
     en: {
+        searchingGpsSignalMessage: 'Looking for GPS signal',
+        skipOriginDetectionLabel: 'Choose manually',
+        manualOriginPromptMessage: 'Pick the station you are leaving from.',
         locationServicesDisabledMessage: 'Location is turned off on this device. Turn it on to detect your station, or pick it below.',
         pickerTitle: 'Choose your destination',
         pickerOriginTitle: 'Choose your origin',
@@ -20,6 +23,9 @@ export default {
         pickerRecentTripA11yLabel: 'Recent: %s'
     },
     es: {
+        searchingGpsSignalMessage: 'Buscando señal GPS',
+        skipOriginDetectionLabel: 'Elegir manualmente',
+        manualOriginPromptMessage: 'Elegí la estación desde la que salís.',
         locationServicesDisabledMessage: 'La ubicación está desactivada en este dispositivo. Activala para detectar tu estación, o elegila abajo.',
         pickerTitle: 'Elegí tu destino',
         pickerOriginTitle: 'Elegí tu origen',
