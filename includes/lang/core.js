@@ -9,7 +9,8 @@ export default {
         navSettingsLabel: 'Settings',
         navAboutLabel: 'About',
         navRailLabel: 'Main navigation',
-        navMoreOptionsLabel: 'More options'
+        navMoreOptionsLabel: 'More options',
+        startupAppName: 'BelgranoWear'
     },
     es: {
         screenFullScheduleName: 'Horario completo',
@@ -20,6 +21,7 @@ export default {
         navSettingsLabel: 'Ajustes',
         navAboutLabel: 'Acerca de',
         navRailLabel: 'Navegación principal',
-        navMoreOptionsLabel: 'Más opciones'
+        navMoreOptionsLabel: 'Más opciones',
+        startupAppName: 'BelgranoWear'
     }
 };

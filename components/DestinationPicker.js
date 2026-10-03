@@ -33,6 +33,8 @@ import {
 import OfflineModeHint from './OfflineModeHint';
 import { NextSchedulePane } from './NextSchedule';
 import RoutineCard from './RoutineCard';
+import StartupScreen from './StartupScreen';
+import StartupReveal from './layout/StartupReveal';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 
 import Cache       from '../includes/Cache';
@@ -404,19 +406,6 @@ function DetailEmptyState({ title, message, shortcuts }) {
 }
 
 
-function LoadingState({ operation }) {
-    const { theme } = useTheme();
-
-    return (
-        <AppScreen scroll={false} contentStyle={styles.centerContent}>
-            <TransitCard style={styles.loadingCard}>
-                <ActivityIndicator size="large" color={theme.accent} accessibilityLabel={operation} />
-                <Text variant="titleMedium" style={styles.centerText}>{operation}</Text>
-            </TransitCard>
-        </AppScreen>
-    );
-}
-
 export default function DestinationPicker({ navigation }) {
     const responsive = useResponsiveMetrics();
     const { theme, isAndroidDynamicColorAvailable } = useTheme();
@@ -544,13 +533,17 @@ export default function DestinationPicker({ navigation }) {
     };
 
     // The swipe recognizer's responder would swallow wheel/touch scrolling on web, so it's native-only.
+    // Every content branch shares the StartupReveal root, so the first content fades in after the
+    // startup screen and later branch switches (manual origin ↔ list) don't fade again.
     const withOptionalSwipeExit = content => {
-        if (watchLayout || Platform.OS === 'web') { return content; }
+        if (watchLayout || Platform.OS === 'web') { return <StartupReveal>{content}</StartupReveal>; }
 
         return (
-            <GestureRecognizer style={styles.fill} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
-                {content}
-            </GestureRecognizer>
+            <StartupReveal>
+                <GestureRecognizer style={styles.fill} onSwipeRight={swipeRightHandler} directionalOffsetThreshold={process.env.EXIT_SWIPE_X_MAX_OFFSET_THRESHOLD}>
+                    {content}
+                </GestureRecognizer>
+            </StartupReveal>
         );
     };
 
@@ -1178,6 +1171,13 @@ export default function DestinationPicker({ navigation }) {
         </>
     );
 
+    const showingStartup = !crashMessage && (previewMode === 'loading' || (!loadFinished && !showManualOriginPicker));
+
+    // The startup screen is full-bleed (mirrors the native launch screen): no app bar until content.
+    useEffect(() => {
+        navigation.setOptions({ headerShown: showingStartup ? false : !(watchLayout || responsive.hasNavigationRail) });
+    }, [ showingStartup, watchLayout, responsive.hasNavigationRail ]);
+
     if (crashMessage) {
         return withOptionalSwipeExit(
                 <AppScreen>
@@ -1189,15 +1189,15 @@ export default function DestinationPicker({ navigation }) {
         );
     }
 
-    if (previewMode === 'loading' || (!loadFinished && !showManualOriginPicker)) {
-        return <LoadingState operation={currentOperation} />;
+    if (showingStartup) {
+        return <StartupScreen operation={currentOperation} />;
     }
 
     if (showManualOriginPicker && !tabletTwoPane) {
         const manualReason = manualOriginReason || Lang.t('manualOriginFallbackMessage');
 
         if (watchLayout) {
-            return (
+            return withOptionalSwipeExit(
                 <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchTopPadding } ]}>
                     <WatchScaleItem maxScale={1}>
                         <View style={styles.manualOriginHeaderWatch}>
@@ -1365,7 +1365,7 @@ export default function DestinationPicker({ navigation }) {
 
     // Watch (W1): Desde chip → Favoritos → Recientes → Todas, all inside the round-safe flow width.
     if (watchLayout) {
-        return (
+        return withOptionalSwipeExit(
             <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchTopPadding } ]}>
                 <WatchScaleItem maxScale={1}>
                     <OriginBar {...originBarProps} variant="watch" round={watchRound} />

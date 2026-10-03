@@ -13,7 +13,6 @@ const {
   withInfoPlist,
   withMainActivity,
   withSettingsGradle,
-  withStringsXml,
 } = require('expo/config-plugins');
 const withBelgranoDeviceModule = require('./withBelgranoDeviceModule');
 const withBelgranoNetworkSecurity = require('./withBelgranoNetworkSecurity');
@@ -60,17 +59,21 @@ tasks.configureEach { task ->
 `;
 
 // Colors used by the launch screen (react-native-splash-screen) and the splash window background.
+// They match the JS theme background/onSurface (includes/Theme.js) so hiding the native splash
+// reveals an identical frame (components/StartupScreen.js). Watches use the OLED black surface.
 // colorPrimary comes from `primaryColor` in app.json; Expo owns iconBackground and colorPrimaryDark.
 const SPLASH_COLORS = {
   day: {
     splashscreen_background: '#fff8f6',
-    splashscreen_text:       '#251815',
-    splashscreen_progress:   '#be4936',
+    splashscreen_text:       '#241917',
   },
   night: {
-    splashscreen_background: '#080403',
-    splashscreen_text:       '#fff7f4',
-    splashscreen_progress:   '#ffb4a8',
+    splashscreen_background: '#1b110f',
+    splashscreen_text:       '#f4deda',
+  },
+  watch: {
+    splashscreen_background: '#000000',
+    splashscreen_text:       '#f4deda',
   },
 };
 
@@ -78,11 +81,13 @@ const SPLASH_COLORS = {
 const EXTRA_SPLASH_COLOR_DIRS = {
   'values-v31':         SPLASH_COLORS.day,
   'values-night-v31':   SPLASH_COLORS.night,
-  'values-watch':       SPLASH_COLORS.night,
-  'values-watch-v31':   SPLASH_COLORS.night,
+  'values-watch':       SPLASH_COLORS.watch,
+  'values-watch-v31':   SPLASH_COLORS.watch,
 };
 
-const LOADING_ASSETS_TEXT = 'Loading assets...';
+// assets/splash-icon.png is the rounded app tile, also used by StartupScreen.js.
+const SPLASH_ICON_ASSET    = path.join('assets', 'splash-icon.png');
+const SPLASH_ICON_DRAWABLE = 'belgrano_splash_icon';
 
 const renderColorsXml = colors => `<?xml version="1.0" encoding="utf-8"?>
 <resources>
@@ -95,44 +100,72 @@ const assignColors = (colorsXml, colors) => Object.entries(colors).reduce(
   colorsXml
 );
 
-const LAUNCH_SCREEN_XML = `<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    android:background="@color/splashscreen_background"
-    android:layout_height="match_parent" android:layout_width="match_parent"
-    xmlns:android="http://schemas.android.com/apk/res/android">
+// Pre-Android 12 window background while the process starts: the same centered tile.
+const LAUNCH_BACKGROUND_XML = `<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splashscreen_background" />
+    <item android:width="120dp" android:height="120dp" android:gravity="center"
+        android:drawable="@drawable/${SPLASH_ICON_DRAWABLE}" />
+</layer-list>
+`;
 
-    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-        android:orientation="horizontal" android:layout_width="match_parent"
+// Android 12+ system splash: the icon canvas is 240dp with a 160dp visible circle; a 60dp inset
+// leaves the 120dp tile (its rounded corners stay inside the circle) at the exact same size.
+const SPLASH_ICON_V31_XML = `<?xml version="1.0" encoding="utf-8"?>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/${SPLASH_ICON_DRAWABLE}"
+    android:inset="60dp" />
+`;
+
+// react-native-splash-screen layout (shown until JS calls hide()). Icon centered like the system
+// splash, app name below it; the loading indicator and current step belong to the JS startup
+// screen, so there is no native spinner or untranslated text here.
+const renderLaunchScreenXml = (iconSize, titleSize) => `<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/splashscreen_background">
+
+    <ImageView
+        android:id="@+id/belgrano_splash_icon"
+        android:layout_width="${iconSize}dp"
+        android:layout_height="${iconSize}dp"
+        android:layout_centerInParent="true"
+        android:importantForAccessibility="no"
+        android:src="@drawable/${SPLASH_ICON_DRAWABLE}" />
+
+    <TextView
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center">
+        android:layout_below="@id/belgrano_splash_icon"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="@color/splashscreen_text"
+        android:textSize="${titleSize}sp"
+        android:text="@string/app_name" />
+</RelativeLayout>
+`;
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:layout_gravity="center">
+// Watch: the JS startup screen stacks icon + indicator + step, so the native frame reserves the
+// same space below the icon (10dp gap + 32dp indicator + 8dp + two 15dp lines) to keep it still.
+const LAUNCH_SCREEN_WATCH_XML = `<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/splashscreen_background"
+    android:gravity="center"
+    android:orientation="vertical">
 
-            <ProgressBar
-                android:layout_width="32dp"
-                android:layout_height="wrap_content"
-                android:indeterminate="true"
-                android:indeterminateTintMode="src_in"
-                android:indeterminateTint="@color/splashscreen_progress"
-                android:layout_gravity="center" />
+    <ImageView
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/${SPLASH_ICON_DRAWABLE}" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:textAlignment="center"
-                android:textColor="@color/splashscreen_text"
-                android:gravity="center"
-                android:textSize="14sp"
-                android:text="@string/loading_assets" />
-
-        </LinearLayout>
-
-    </LinearLayout>
+    <Space
+        android:layout_width="1dp"
+        android:layout_height="80dp" />
 </LinearLayout>
 `;
 
@@ -185,17 +218,16 @@ const withBelgranoAndroidStyles = config => withAndroidStyles(config, config => 
   styles = Styles.assignStylesValue(styles, { add: true, parent: resetEditText, name: 'android:padding', value: '0dp' });
   styles = Styles.assignStylesValue(styles, { add: true, parent: resetEditText, name: 'android:textColorHint', value: '#c8c8c8' });
 
+  // Launch theme: our own centered tile on every API level (Android 12+ via the SplashScreen attrs).
+  const splashTheme = { name: 'Theme.App.SplashScreen', parent: 'AppTheme' };
+  styles = Styles.assignStylesValue(styles, { add: true, parent: splashTheme, name: 'android:windowBackground', value: '@drawable/belgrano_launch_background' });
+  styles = Styles.assignStylesValue(styles, { add: true, parent: splashTheme, name: 'android:windowSplashScreenBackground', value: '@color/splashscreen_background', targetApi: '31' });
+  styles = Styles.assignStylesValue(styles, { add: true, parent: splashTheme, name: 'android:windowSplashScreenAnimatedIcon', value: '@drawable/belgrano_splash_icon_v31', targetApi: '31' });
+
   config.modResults = styles;
   return config;
 });
 
-const withBelgranoAndroidStrings = config => withStringsXml(config, config => {
-  config.modResults = AndroidConfig.Strings.setStringItem(
-    [AndroidConfig.Resources.buildResourceItem({ name: 'loading_assets', value: LOADING_ASSETS_TEXT })],
-    config.modResults
-  );
-  return config;
-});
 
 // Only local notifications are used, so drop the push entitlement expo-notifications adds.
 // This plugin must be listed BEFORE expo-notifications in app.json: mods registered earlier run later.
@@ -331,7 +363,16 @@ const withBelgranoAndroidResources = config => withDangerousMod(config, ['androi
   for (const [dir, colors] of Object.entries(EXTRA_SPLASH_COLOR_DIRS)) {
     writeFile(path.join(mainRes, dir, 'colors.xml'), renderColorsXml(colors));
   }
-  writeFile(path.join(mainRes, 'layout', 'launch_screen.xml'), LAUNCH_SCREEN_XML);
+  writeFile(path.join(mainRes, 'layout', 'launch_screen.xml'), renderLaunchScreenXml(88, 20));
+  writeFile(path.join(mainRes, 'layout-h480dp', 'launch_screen.xml'), renderLaunchScreenXml(120, 24));
+  writeFile(path.join(mainRes, 'layout-watch', 'launch_screen.xml'), LAUNCH_SCREEN_WATCH_XML);
+  writeFile(path.join(mainRes, 'drawable', 'belgrano_launch_background.xml'), LAUNCH_BACKGROUND_XML);
+  writeFile(path.join(mainRes, 'drawable', 'belgrano_splash_icon_v31.xml'), SPLASH_ICON_V31_XML);
+  fs.mkdirSync(path.join(mainRes, 'drawable-nodpi'), { recursive: true });
+  fs.copyFileSync(
+    path.join(config.modRequest.projectRoot, SPLASH_ICON_ASSET),
+    path.join(mainRes, 'drawable-nodpi', `${SPLASH_ICON_DRAWABLE}.png`)
+  );
 
   return config;
 }]);
@@ -345,7 +386,6 @@ module.exports = function withBelgranoNativeConfig(config) {
   config = withBelgranoAndroidResources(config);
   config = withBelgranoAndroidColors(config);
   config = withBelgranoAndroidStyles(config);
-  config = withBelgranoAndroidStrings(config);
   config = withBelgranoNetworkSecurity(config);
   config = withBelgranoDeviceModule(config);
   config = withBelgranoInfoPlist(config);
