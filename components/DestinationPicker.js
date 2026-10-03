@@ -763,7 +763,7 @@ export default function DestinationPicker({ navigation }) {
         const timeoutHandle = setTimeout(() => reject(new Error(`Couldn't get GPS location after ${timeout / 1000} seconds.`)), timeout);
 
         try {
-            const location = await Location.getCurrentPositionAsync(accuracy ? { accuracy } : undefined);
+            const location = await Location.getCurrentPositionAsync(accuracy ? { accuracy, mayShowUserSettingsDialog: false } : undefined);
             clearTimeout(timeoutHandle);
             resolve(location);
         } catch (exception) {
@@ -859,12 +859,15 @@ export default function DestinationPicker({ navigation }) {
         let location;
 
         try {
-            // Watches usually have no network location provider, and the default (balanced)
-            // request never powers the GPS on there, so ask for a GPS fix and give it time.
+            // Watches usually have no network location provider. With it off, expo-location first
+            // runs Play Services' "improve accuracy" settings check, which Wear OS rejects (status
+            // 10) before any request is made; so skip that check, ask for a GPS fix and give it time.
             location = watchLayout
                 ? await tryGetCurrentPositionAsync(WATCH_GPS_FIX_TIMEOUT_MS, Location.Accuracy.High)
                 : await tryGetCurrentPositionAsync(process.env.GPS_FIX_TIMEOUT);
         } catch (exception) {
+            console.warn('detectOriginStation: no current position, trying the last known one:', exception?.message || exception);
+
             try {
                 location = await tryGetLastKnownPositionAsync(process.env.GPS_FIX_TIMEOUT);
             } catch (lastKnownException) {
