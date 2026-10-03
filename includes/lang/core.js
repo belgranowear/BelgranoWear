@@ -1,8 +1,13 @@
-// Strings for the "core" area. Owned by a single area to avoid merge conflicts;
-// keys must be unique across all partials and Lang.js (later partials win).
+// Strings shared by the app shell (screen titles, navigation). Owned by the shell/layout area.
 export default {
     en: {
+        screenFullScheduleName: 'Full schedule',
+        screenTripDetailName: 'Trip',
+        screenRemindersName: 'Reminders'
     },
     es: {
+        screenFullScheduleName: 'Horario completo',
+        screenTripDetailName: 'Viaje',
+        screenRemindersName: 'Recordatorios'
     }
 };

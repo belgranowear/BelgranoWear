@@ -17,6 +17,9 @@ import NextSchedule      from './components/NextSchedule';
 import OfflineModeInfo   from './components/OfflineModeInfo';
 import Settings          from './components/Settings';
 import About             from './components/About';
+import FullSchedule      from './components/FullSchedule';
+import TripDetail        from './components/TripDetail';
+import RemindersScreen   from './components/RemindersScreen';
 
 import Lang from './includes/Lang';
 import Reminders from './includes/Reminders';
@@ -77,6 +80,9 @@ function AppNavigator() {
           <Stack.Screen name='OfflineModeInfo'   component={OfflineModeInfo}   options={{ title: Lang.t('screenOfflineModeInfoName')   }}></Stack.Screen>
           <Stack.Screen name='Settings'          component={Settings}          options={{ title: Lang.t('screenSettingsName')          }}></Stack.Screen>
           <Stack.Screen name='About'             component={About}             options={{ title: Lang.t('screenAboutName')             }}></Stack.Screen>
+          <Stack.Screen name='FullSchedule'      component={FullSchedule}      initialParams={nextScheduleInitialParams} options={{ title: Lang.t('screenFullScheduleName') }}></Stack.Screen>
+          <Stack.Screen name='TripDetail'        component={TripDetail}        initialParams={nextScheduleInitialParams} options={{ title: Lang.t('screenTripDetailName')   }}></Stack.Screen>
+          <Stack.Screen name='Reminders'         component={RemindersScreen}   options={{ title: Lang.t('screenRemindersName')    }}></Stack.Screen>
         </Stack.Navigator>
       </NavigationContainer>
     </>

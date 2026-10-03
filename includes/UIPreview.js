@@ -20,8 +20,27 @@ const PREVIEW_MODES = [
     'watch-picker',
     'watch-manual',
     'watch-loading',
-    'watch-schedule'
+    'watch-schedule',
+    'full-schedule',
+    'trip',
+    'reminders',
+    'watch-full-schedule',
+    'watch-trip',
+    'watch-reminders'
 ];
+
+// Preview mode → initial route (modes not listed open the destination picker).
+const PREVIEW_ROUTES = {
+    'schedule':            'NextSchedule',
+    'watch':               'NextSchedule',
+    'watch-schedule':      'NextSchedule',
+    'full-schedule':       'FullSchedule',
+    'watch-full-schedule': 'FullSchedule',
+    'trip':                'TripDetail',
+    'watch-trip':          'TripDetail',
+    'reminders':           'Reminders',
+    'watch-reminders':     'Reminders'
+};
 
 export const previewRoute = {
     origin:      mockStations[2],
@@ -85,7 +104,5 @@ export function isWatchUIPreview() {
 export function getInitialRouteNameForPreview() {
     const mode = getUIPreviewMode();
 
-    if (mode === 'schedule' || mode === 'watch' || mode === 'watch-schedule') { return 'NextSchedule'; }
-
-    return 'DestinationPicker';
+    return PREVIEW_ROUTES[mode] || 'DestinationPicker';
 }
