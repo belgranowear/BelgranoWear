@@ -22,6 +22,7 @@ import useTripDetail from './trip/useTripDetail';
 import CurvedText from './watch/CurvedText';
 import EdgeButton, * as EdgeButtonModule from './watch/EdgeButton';
 import useRotaryScroll from './watch/useRotaryScroll';
+import * as UI from './ui';
 import { AppScreen, EmptyState, SectionHeader, TransitCard, useResponsiveMetrics } from './ui';
 
 const SHORT_HEIGHT_MAX     = 480;
@@ -31,6 +32,10 @@ const WATCH_COLLAPSE_ABOVE = 4;
 // `useEdgeButtonMetrics` ships with the watch primitives; fall back to no reserved space
 // while only the contract stub is present (resolved once per module, so hook order is stable).
 const useEdgeButtonMetrics = EdgeButtonModule.useEdgeButtonMetrics || (() => ({ reservedSpace: 0 }));
+
+// Watch scroll tracking (arc indicator) from the layout area; no-op until it lands.
+const useWatchScrollTracker = UI.useWatchScrollTracker || (() => null);
+const WatchArcScrollIndicator = UI.WatchArcScrollIndicator || null;
 
 // Upstream stations (dimmed) + "Tren aprox." marker, from the live position estimate.
 const buildUpstreamEntries = (live, titles) => {
@@ -97,6 +102,8 @@ export default function TripDetail({ route }) {
     const detail = useTripDetail({ origin, destination, segmentsList, holidaysList, departure });
     const rotary = useRotaryScroll(scrollRef, { enabled: responsive.isWatch && isFocused });
     const edge   = useEdgeButtonMetrics();
+    // Plain ScrollView below, so the tracker must not use the native driver.
+    const tracker = useWatchScrollTracker({ enabled: responsive.isWatch, onScroll: rotary?.onScroll, useNativeDriver: false });
 
     const canFollow = LiveTrip.isAvailable();
 
@@ -208,7 +215,9 @@ export default function TripDetail({ route }) {
                             paddingBottom:     (round ? Math.round(side * 0.2) : 12) + (canFollow ? (edge?.reservedSpace || 0) : 0)
                         }
                     ]}
-                    onScroll={rotary?.onScroll}
+                    onScroll={tracker?.onScroll || rotary?.onScroll}
+                    onLayout={tracker?.onLayout}
+                    onContentSizeChange={tracker?.onContentSizeChange}
                     scrollEventThrottle={16}
                     showsVerticalScrollIndicator={false}
                 >
@@ -238,6 +247,13 @@ export default function TripDetail({ route }) {
                         <Button compact mode="text" onPress={() => setExpanded(false)} style={styles.watchToggle}>{Lang.t('tripShowLess')}</Button>
                     ) : null}
                 </ScrollView>
+                {tracker?.showIndicator && WatchArcScrollIndicator ? (
+                    <WatchArcScrollIndicator
+                        contentHeight={tracker.contentHeight}
+                        viewportHeight={tracker.viewportHeight}
+                        scrollOffset={tracker.scrollOffset}
+                    />
+                ) : null}
                 {canFollow ? (
                     <EdgeButton
                         label={Lang.t(following ? 'tripStopFollowingShort' : 'tripFollowShort')}
