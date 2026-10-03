@@ -57,15 +57,6 @@ const normalizeTrip = (origin, destination) => ({
     updatedAt:   Date.now()
 });
 
-// Unlike readJSON, read failures are thrown so callers never overwrite data they couldn't read.
-const readJSONStrict = async (key, fallback) => {
-    const rawValue = await AsyncStorage.getItem(key);
-
-    if (rawValue === null) { return fallback; }
-
-    return JSON.parse(rawValue);
-};
-
 const writeJSONStrict = async (key, value) => {
     if (!await writeJSON(key, value)) {
         throw new Error(`Preferences: couldn't write ${key}`);
@@ -76,11 +67,26 @@ const isValidTrip = trip => trip?.origin?.id != null && trip?.destination?.id !=
 
 const sanitizeTrips = trips => Array.isArray(trips) ? trips.filter(isValidTrip) : [];
 
+// Storage errors are thrown, but a corrupt (unparseable or non-list) value is backed up and replaced
+// so the user can keep saving trips instead of being locked out forever.
 const readTripsStrict = async key => {
-    const trips = await readJSONStrict(key, []);
+    const rawValue = await AsyncStorage.getItem(key);
+
+    if (rawValue === null) { return []; }
+
+    let trips;
+
+    try {
+        trips = JSON.parse(rawValue);
+    } catch (exception) {
+        trips = undefined;
+    }
 
     if (!Array.isArray(trips)) {
-        throw new Error(`Preferences: ${key} isn't a list`);
+        console.warn(`Preferences: ${key} is corrupt, backing it up and starting over.`);
+        await writeJSONStrict(`${key}.corrupt`, rawValue);
+
+        return [];
     }
 
     return trips.filter(isValidTrip);
