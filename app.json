@@ -38,6 +38,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withBelgranoWear",
       "./plugins/withBelgranoNativeConfig",
       "./plugins/withBelgranoRotary",
       "expo-localization",
