@@ -210,12 +210,19 @@ function ScheduleControls({ schedule, params, theme, compact, onSelectSegment })
     const notice = holidayNotice(schedule.today);
     const holidaySegment = schedule.segments.find(segment => segment.kind === 'holiday');
     const canJumpToHoliday = Boolean(notice && holidaySegment && schedule.selectedSegmentId !== holidaySegment.id);
+    const holidaySelected  = Boolean(holidaySegment && schedule.selectedSegmentId === holidaySegment.id);
+    // Below ~150dp per segment "Dom. y feriados" gets ellipsized ("Dom. …"): switch to the compact
+    // label and spell out what the selected timetable covers right under the selector.
+    const [ controlsWidth, setControlsWidth ] = useState(0);
+    const segmentWidth   = controlsWidth / Math.max(1, schedule.segments.length);
+    const narrowSegments = controlsWidth > 0 && segmentWidth < 150;
+    const tinySegments   = controlsWidth > 0 && segmentWidth < 100;   // ~320dp phones: "Háb." / "Sáb."
     const viewingOtherDay  = !schedule.isToday && schedule.dayOffset > 0
         ? Lang.t('fullScheduleViewingOtherDay', { date: formatDate(schedule.now.add(schedule.dayOffset, 'day')) })
         : null;
 
     return (
-        <View style={[ styles.controls, compact ? styles.controlsCompact : null ]}>
+        <View style={[ styles.controls, compact ? styles.controlsCompact : null ]} onLayout={event => setControlsWidth(event.nativeEvent.layout.width)}>
             <View style={styles.routeRow}>
                 <RouteHeader
                     origin={params.origin}
@@ -232,12 +239,24 @@ function ScheduleControls({ schedule, params, theme, compact, onSelectSegment })
                     density={compact ? 'small' : 'regular'}
                     buttons={schedule.segments.map(segment => ({
                         value:              segment.id,
-                        label:              segmentLabel(segment),
+                        label:              narrowSegments && segment.kind === 'holiday'
+                            ? Lang.t('fullScheduleSegmentHolidayCompact')
+                            : segmentLabel(segment, tinySegments),
                         accessibilityLabel: segment.name,
                         labelStyle:         theme.type.emphasized.label,
+                        // Narrow: the longer holiday label takes a wider slot instead of being ellipsized.
+                        style:              narrowSegments ? { flex: segment.kind === 'holiday' ? 1.35 : 1 } : undefined,
                         showSelectedCheck:  false
                     }))}
                 />
+            ) : null}
+            {holidaySelected ? (
+                <View style={styles.infoRow}>
+                    <Icon source="calendar-star" size={18} color={theme.roles.primary} />
+                    <Text variant="bodyMedium" style={[ styles.infoText, { color: theme.text } ]}>
+                        {Lang.t('fullScheduleHolidayAppliesLabel')}
+                    </Text>
+                </View>
             ) : null}
             <View style={styles.infoRow}>
                 <Icon source="calendar-blank-outline" size={18} color={theme.textMuted} />
