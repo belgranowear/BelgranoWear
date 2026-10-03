@@ -2,7 +2,7 @@ import normalizeSpecialCharacters from 'specialtonormal';
 
 import GestureRecognizer from 'react-native-swipe-gestures';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   BackHandler,
@@ -13,6 +13,8 @@ import {
   StyleSheet,
   View
 } from 'react-native';
+
+import { useFocusEffect } from '@react-navigation/native';
 
 import * as Location from 'expo-location';
 
@@ -52,7 +54,10 @@ let cacheVerificationInProgress = false;
 
 const formatDistanceKm = meters => (meters / 1000).toFixed(1);
 
-const tripDestination = trip => trip.destination;
+// Trips from the current origin only need the destination; others show the full route.
+const quickTripTitle = trip => trip.isCurrentOrigin
+    ? trip.destination.title
+    : `${trip.origin.title} → ${trip.destination.title}`;
 
 function SettingsButton({ navigation }) {
     const { theme } = useTheme();
@@ -205,7 +210,7 @@ function QuickRouteCard({ trip, label, onPress, compact = false }) {
                     style={styles.quickRoutePressableWatch}
                 >
                     <Text numberOfLines={1} style={[ styles.quickRouteLabelWatch, { color: theme.accentStrong } ]}>{label}</Text>
-                    <Text numberOfLines={2} style={[ styles.quickRouteTitleWatch, { color: theme.accentStrong } ]}>{tripDestination(trip).title}</Text>
+                    <Text numberOfLines={2} style={[ styles.quickRouteTitleWatch, { color: theme.accentStrong } ]}>{quickTripTitle(trip)}</Text>
                 </Pressable>
             </Surface>
         );
@@ -214,7 +219,7 @@ function QuickRouteCard({ trip, label, onPress, compact = false }) {
     return (
         <Surface mode="flat" elevation={1} style={[ styles.quickRouteCard, { backgroundColor: theme.paperTheme.colors.surfaceVariant } ]}>
             <List.Item
-                title={tripDestination(trip).title}
+                title={quickTripTitle(trip)}
                 description={label}
                 titleNumberOfLines={2}
                 left={props => <List.Icon {...props} icon="ray-start-arrow" />}
@@ -265,6 +270,7 @@ export default function DestinationPicker({ navigation }) {
     const [ recentTrips,                setRecentTrips                ] = useState([]);
     const [ tabletDestination,          setTabletDestination          ] = useState();
     const [ offlineDataFetchedAt,       setOfflineDataFetchedAt       ] = useState();
+    const [ favoritesVersion,           setFavoritesVersion           ] = useState(0);
 
     const networkTimeoutMs = watchLayout ? WATCH_FETCH_TIMEOUT_MS : undefined;
 
@@ -275,34 +281,61 @@ export default function DestinationPicker({ navigation }) {
         return allDestinationsList.filter(item => item.id !== originStation.id);
     }, [ allDestinationsList, originStation ]);
 
+    const resolveTrips = trips => {
+        if (!allDestinationsList) { return []; }
+
+        return trips
+            .map(trip => Preferences.resolveTrip(trip, allDestinationsList))
+            .filter(Boolean)
+            .filter((trip, index, array) => array.findIndex(candidate => candidate.id === trip.id) === index);
+    };
+
+    const resolvedFavoriteTrips = useMemo(() => resolveTrips(favoriteTrips), [ favoriteTrips, allDestinationsList ]);
+
+    const resolvedRecentTrips = useMemo(() => resolveTrips(recentTrips), [ recentTrips, allDestinationsList ]);
+
     const currentOriginFavoriteDestinationIds = useMemo(() => {
         if (!originStation) { return []; }
 
-        return favoriteTrips
+        return resolvedFavoriteTrips
             .filter(trip => trip.origin.id === originStation.id)
             .map(trip => trip.destination.id);
-    }, [ favoriteTrips, originStation ]);
+    }, [ resolvedFavoriteTrips, originStation ]);
 
     const favoriteDestinations = useMemo(() => {
-        if (!originStation) { return []; }
-
-        return favoriteTrips
-            .filter(trip => trip.origin.id === originStation.id)
-            .map(trip => destinationList.find(item => item.id === trip.destination.id))
+        return currentOriginFavoriteDestinationIds
+            .map(id => destinationList.find(item => item.id === id))
             .filter(Boolean);
-    }, [ favoriteTrips, destinationList, originStation ]);
+    }, [ currentOriginFavoriteDestinationIds, destinationList ]);
 
-    const recentDestinations = useMemo(() => {
-        if (!originStation) { return []; }
+    // Single source for the favorites/recents sections: { id, origin, destination, kind, isCurrentOrigin }.
+    const quickTrips = useMemo(() => {
+        const isCurrentOrigin = trip => Boolean(originStation) && trip.origin.id === originStation.id;
+        const toQuickTrip     = kind => trip => ({
+            id:              `${kind}-${trip.id}`,
+            origin:          trip.origin,
+            destination:     trip.destination,
+            kind,
+            isCurrentOrigin: isCurrentOrigin(trip)
+        });
+        const favoriteIds = new Set(resolvedFavoriteTrips.map(trip => trip.id));
 
-        return recentTrips
-            .filter(trip => trip.origin.id === originStation.id)
-            .map(trip => destinationList.find(item => item.id === trip.destination.id))
-            .filter(Boolean)
-            .filter((item, index, array) => array.findIndex(candidate => candidate.id === item.id) === index)
-            .filter(item => currentOriginFavoriteDestinationIds.indexOf(item.id) === -1)
-            .slice(0, 3);
-    }, [ recentTrips, destinationList, originStation, currentOriginFavoriteDestinationIds ]);
+        const favorites = [
+            ...resolvedFavoriteTrips.filter(isCurrentOrigin),
+            ...resolvedFavoriteTrips.filter(trip => !isCurrentOrigin(trip))
+        ].map(toQuickTrip('favorite'));
+
+        const recents = resolvedRecentTrips
+            .filter(isCurrentOrigin)
+            .filter(trip => !favoriteIds.has(trip.id))
+            .slice(0, 3)
+            .map(toQuickTrip('recent'));
+
+        return [ ...favorites, ...recents ];
+    }, [ resolvedFavoriteTrips, resolvedRecentTrips, originStation ]);
+
+    const favoriteQuickTrips = quickTrips.filter(trip => trip.kind === 'favorite');
+    const recentQuickTrips   = quickTrips.filter(trip => trip.kind === 'recent');
 
     const prioritizedDestinations = useMemo(() => {
         const favoriteIds = currentOriginFavoriteDestinationIds;
@@ -318,9 +351,23 @@ export default function DestinationPicker({ navigation }) {
     const crash = message => { setCrashMessage(message); };
 
     const refreshPreferences = async () => {
-        setFavoriteTrips(await Preferences.getFavoriteTrips());
-        setRecentTrips(await Preferences.getRecentTrips());
+        const [ nextFavoriteTrips, nextRecentTrips ] = await Promise.all([
+            Preferences.getFavoriteTrips(),
+            Preferences.getRecentTrips()
+        ]);
+
+        setFavoriteTrips(nextFavoriteTrips);
+        setRecentTrips(nextRecentTrips);
+        setFavoritesVersion(version => version + 1);
     };
+
+    // Favorites can change on NextSchedule, so re-read them whenever this screen regains focus.
+    useFocusEffect(
+        useCallback(() => {
+            if (previewMode) { return; }
+            refreshPreferences();
+        }, [ previewMode ])
+    );
 
     const swipeRightHandler = state => {
         if (!Platform.constants || Platform.constants.uiMode != 'watch') { return; }
@@ -718,28 +765,54 @@ export default function DestinationPicker({ navigation }) {
         setSelectedId(undefined);
         setShowManualOriginPicker(false);
         setLoadFinished(true);
+        if (!previewMode) { refreshPreferences(); }
     };
 
-    const goToDestination = async item => {
+    const goToDestination = async (item, origin = originStation) => {
         setSelectedId(item.id);
-        await Preferences.recordRecentTrip(originStation, item);
-        await refreshPreferences();
 
-        if (tabletTwoPane) {
-            setTabletDestination(item);
-            return;
+        if (!originStation || origin.id !== originStation.id) {
+            setOriginStation(origin);
+            setOriginDistanceMeters(undefined);
+            setShowManualOriginPicker(false);
         }
 
+        if (tabletTwoPane) { setTabletDestination(item); }
+
+        await Preferences.recordRecentTrip(origin, item);
+        await refreshPreferences();
+
+        if (tabletTwoPane) { return; }
+
         navigation.navigate('NextSchedule', {
-            origin:       originStation,
+            origin:       origin,
             destination:  item,
             segmentsList: segmentsList,
             holidaysList: holidaysList
         });
     };
 
+    // Opens a favorite/recent trip, switching origin too when it belongs to another station.
+    const openTrip = trip => goToDestination(trip.destination, trip.origin);
+
     const toggleFavorite = async item => {
-        await Preferences.toggleFavoriteTrip(originStation, item);
+        if (!originStation) { return; }
+
+        const shouldBeFavorite = currentOriginFavoriteDestinationIds.indexOf(item.id) === -1;
+        const trip             = Preferences.buildTrip(originStation, item);
+
+        setFavoriteTrips(previousTrips => {
+            const otherTrips = previousTrips.filter(entry => !Preferences.isSameTrip(entry, trip));
+
+            return shouldBeFavorite ? [ trip, ...otherTrips ] : otherTrips;
+        });
+
+        try {
+            await Preferences.setFavoriteTrip(originStation, item, shouldBeFavorite);
+        } catch (exception) {
+            console.warn('toggleFavorite: couldn\'t update favorite trip:', exception);
+        }
+
         await refreshPreferences();
     };
 
@@ -847,6 +920,7 @@ export default function DestinationPicker({ navigation }) {
         setTabletDestination(nextRoute.destination);
         setSelectedId(nextRoute.destination.id);
         setShowManualOriginPicker(false);
+        if (!previewMode) { refreshPreferences(); }
     };
 
     const renderDestinationItem = ({ item }) => (
@@ -934,10 +1008,10 @@ export default function DestinationPicker({ navigation }) {
         );
     }
 
-    const quickTrips = [
-        ...favoriteDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('favoritesSectionTitle') })),
-        ...recentDestinations.map(destination => ({ origin: originStation, destination, label: Lang.t('recentsSectionTitle') }))
-    ];
+    const quickTripSections = [
+        { key: 'favorite', title: Lang.t('favoritesSectionTitle'), trips: favoriteQuickTrips },
+        { key: 'recent',   title: Lang.t('recentsSectionTitle'),   trips: recentQuickTrips   }
+    ].filter(section => section.trips.length > 0);
 
     if (tabletTwoPane) {
         const isChoosingTabletOrigin = showManualOriginPicker || !originStation;
@@ -994,16 +1068,16 @@ export default function DestinationPicker({ navigation }) {
                                     {isAndroidDynamicColorAvailable ? <StatusPill icon="palette" tone="success">{Lang.t('materialYouEnabledLabel')}</StatusPill> : null}
                                 </TransitCard>
 
-                                {quickTrips.length > 0 ? (
-                                    <View>
-                                        <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                                {quickTripSections.map(section => (
+                                    <View key={section.key}>
+                                        <Text variant="titleMedium" style={styles.sectionTitle}>{section.title}</Text>
                                         <View style={styles.tabletQuickRouteList}>
-                                            {quickTrips.map(trip => (
-                                                <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                                            {section.trips.map(trip => (
+                                                <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} />
                                             ))}
                                         </View>
                                     </View>
-                                ) : null}
+                                ))}
 
                                 <View>
                                     <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('allDestinationsSectionTitle')}</Text>
@@ -1011,7 +1085,7 @@ export default function DestinationPicker({ navigation }) {
                                         data={prioritizedDestinations}
                                         renderItem={renderDestinationItem}
                                         keyExtractor={item => item.id}
-                                        extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
+                                        extraData={`${selectedId}-${currentOriginFavoriteDestinationIds.join(',')}`}
                                         scrollEnabled={false}
                                         showsVerticalScrollIndicator={false}
                                         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
@@ -1032,6 +1106,8 @@ export default function DestinationPicker({ navigation }) {
                             segmentsList={segmentsList}
                             holidaysList={holidaysList}
                             onReplaceRoute={replaceTabletRoute}
+                            onFavoriteChange={refreshPreferences}
+                            favoritesVersion={favoritesVersion}
                             forcePreviewData={Boolean(previewMode)}
                         />
                     ) : (
@@ -1101,27 +1177,27 @@ export default function DestinationPicker({ navigation }) {
                     </TransitCard>
                 )}
 
-                {quickTrips.length > 0 ? (
+                {quickTripSections.map(section => (
                     watchLayout ? (
-                        <WatchScaleItem>
+                        <WatchScaleItem key={section.key}>
                             <View style={styles.watchQuickRouteSection}>
-                                <Text variant="labelLarge" style={[ styles.sectionTitle, styles.sectionTitleWatch ]}>{Lang.t('favoritesSectionTitle')}</Text>
-                                {quickTrips.map(trip => (
-                                    <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} compact />
+                                <Text variant="labelLarge" style={[ styles.sectionTitle, styles.sectionTitleWatch ]}>{section.title}</Text>
+                                {section.trips.map(trip => (
+                                    <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} compact />
                                 ))}
                             </View>
                         </WatchScaleItem>
                     ) : (
-                        <View>
-                            <Text variant="titleMedium" style={styles.sectionTitle}>{Lang.t('favoritesSectionTitle')}</Text>
+                        <View key={section.key}>
+                            <Text variant="titleMedium" style={styles.sectionTitle}>{section.title}</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRouteList}>
-                                {quickTrips.map(trip => (
-                                    <QuickRouteCard key={`${trip.label}-${trip.destination.id}`} trip={trip} label={trip.label} onPress={() => goToDestination(trip.destination)} />
+                                {section.trips.map(trip => (
+                                    <QuickRouteCard key={trip.id} trip={trip} label={section.title} onPress={() => openTrip(trip)} />
                                 ))}
                             </ScrollView>
                         </View>
                     )
-                ) : null}
+                ))}
 
                 {watchLayout ? renderWatchStationStack(prioritizedDestinations, renderDestinationItem, <SettingsButton navigation={navigation} />) : (
                     <View>
@@ -1130,7 +1206,7 @@ export default function DestinationPicker({ navigation }) {
                             data={prioritizedDestinations}
                             renderItem={renderDestinationItem}
                             keyExtractor={item => item.id}
-                            extraData={`${selectedId}-${favoriteTrips.length}-${recentTrips.length}`}
+                            extraData={`${selectedId}-${currentOriginFavoriteDestinationIds.join(',')}`}
                             scrollEnabled={false}
                             showsVerticalScrollIndicator={false}
                             ItemSeparatorComponent={() => <View style={{ height: 8 }} />}

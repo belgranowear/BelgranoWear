@@ -9,6 +9,7 @@ const SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT_KEY = `${KEY_PREFIX}scheduleScrollH
 
 const VALID_THEME_MODES = [ 'system', 'light', 'dark' ];
 const MAX_RECENT_TRIPS  = 5;
+const MAX_RECENT_TRIPS_TOTAL = 25;
 const MAX_SCHEDULE_SCROLL_HINT_FULL_SCROLL_COUNT = 3;
 
 const readJSON = async (key, fallback) => {
@@ -37,12 +38,80 @@ const writeJSON = async (key, value) => {
     return false;
 };
 
+const keyLocks = {};
+
+// Serializes read-modify-write cycles per storage key so concurrent updates can't drop each other.
+const withKeyLock = (key, task) => {
+    const previous = keyLocks[key] || Promise.resolve();
+    const next     = previous.catch(() => {}).then(task);
+
+    keyLocks[key] = next.catch(() => {});
+
+    return next;
+};
+
 const normalizeTrip = (origin, destination) => ({
     id:          `${origin.id}:${destination.id}`,
     origin:      { id: origin.id,      title: origin.title      },
     destination: { id: destination.id, title: destination.title },
     updatedAt:   Date.now()
 });
+
+// Unlike readJSON, read failures are thrown so callers never overwrite data they couldn't read.
+const readJSONStrict = async (key, fallback) => {
+    const rawValue = await AsyncStorage.getItem(key);
+
+    if (rawValue === null) { return fallback; }
+
+    return JSON.parse(rawValue);
+};
+
+const writeJSONStrict = async (key, value) => {
+    if (!await writeJSON(key, value)) {
+        throw new Error(`Preferences: couldn't write ${key}`);
+    }
+};
+
+const isValidTrip = trip => trip?.origin?.id != null && trip?.destination?.id != null;
+
+const sanitizeTrips = trips => Array.isArray(trips) ? trips.filter(isValidTrip) : [];
+
+const readTripsStrict = async key => {
+    const trips = await readJSONStrict(key, []);
+
+    if (!Array.isArray(trips)) {
+        throw new Error(`Preferences: ${key} isn't a list`);
+    }
+
+    return trips.filter(isValidTrip);
+};
+
+const normalizeStationTitle = title => String(title || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const isSameTrip = (left, right) => {
+    if (`${left.origin.id}:${left.destination.id}` === `${right.origin.id}:${right.destination.id}`) { return true; }
+
+    const leftOriginTitle      = normalizeStationTitle(left.origin.title);
+    const leftDestinationTitle = normalizeStationTitle(left.destination.title);
+
+    return Boolean(leftOriginTitle && leftDestinationTitle)
+        && leftOriginTitle      === normalizeStationTitle(right.origin.title)
+        && leftDestinationTitle === normalizeStationTitle(right.destination.title);
+};
+
+// Station ids are upstream numeric keys; if a stored id now points to a differently named station, prefer the stored name.
+const resolveStation = (storedStation, stations) => {
+    const storedTitle = normalizeStationTitle(storedStation.title);
+    const byId        = stations.find(station => station.id === storedStation.id);
+
+    if (byId && (!storedTitle || normalizeStationTitle(byId.title) === storedTitle)) { return byId; }
+
+    const byTitle = storedTitle
+        ? stations.find(station => normalizeStationTitle(station.title) === storedTitle)
+        : undefined;
+
+    return byTitle || byId || null;
+};
 
 const Preferences = {
     getThemeMode: async () => {
@@ -61,43 +130,71 @@ const Preferences = {
         return await writeJSON(THEME_MODE_KEY, themeMode);
     },
 
-    getFavoriteTrips: async () => await readJSON(FAVORITES_KEY, []),
+    getFavoriteTrips: async () => await withKeyLock(FAVORITES_KEY, async () => sanitizeTrips(await readJSON(FAVORITES_KEY, []))),
 
     setFavoriteTrips: async trips => await writeJSON(FAVORITES_KEY, trips),
 
     isFavoriteTrip: async (origin, destination) => {
         const favoriteTrips = await Preferences.getFavoriteTrips();
-        const targetId      = normalizeTrip(origin, destination).id;
-
-        return favoriteTrips.some(trip => trip.id === targetId);
-    },
-
-    toggleFavoriteTrip: async (origin, destination) => {
-        const favoriteTrips = await Preferences.getFavoriteTrips();
         const trip          = normalizeTrip(origin, destination);
-        const exists        = favoriteTrips.some(item => item.id === trip.id);
 
-        const nextFavoriteTrips = exists
-            ? favoriteTrips.filter(item => item.id !== trip.id)
-            : [ trip, ...favoriteTrips.filter(item => item.id !== trip.id) ];
-
-        await Preferences.setFavoriteTrips(nextFavoriteTrips);
-
-        return !exists;
+        return favoriteTrips.some(item => isSameTrip(item, trip));
     },
 
-    getRecentTrips: async () => await readJSON(RECENTS_KEY, []),
+    // Applies the state the user saw and asked for (instead of toggling), so stale UI can't delete a favorite.
+    // Throws when the stored list can't be read or written; nothing is overwritten in that case.
+    setFavoriteTrip: async (origin, destination, shouldBeFavorite) => await withKeyLock(FAVORITES_KEY, async () => {
+        const favoriteTrips = await readTripsStrict(FAVORITES_KEY);
+        const trip          = normalizeTrip(origin, destination);
+        const otherTrips    = favoriteTrips.filter(item => !isSameTrip(item, trip));
 
-    recordRecentTrip: async (origin, destination) => {
-        const recentTrips = await Preferences.getRecentTrips();
-        const trip        = normalizeTrip(origin, destination);
+        await writeJSONStrict(FAVORITES_KEY, shouldBeFavorite ? [ trip, ...otherTrips ] : otherTrips);
 
-        const nextRecentTrips = [
-            trip,
-            ...recentTrips.filter(item => item.id !== trip.id)
-        ].slice(0, MAX_RECENT_TRIPS);
+        return shouldBeFavorite;
+    }),
 
-        return await writeJSON(RECENTS_KEY, nextRecentTrips);
+    getRecentTrips: async () => await withKeyLock(RECENTS_KEY, async () => sanitizeTrips(await readJSON(RECENTS_KEY, []))),
+
+    // Keeps up to MAX_RECENT_TRIPS per origin so trips from other origins don't evict them.
+    recordRecentTrip: async (origin, destination) => await withKeyLock(RECENTS_KEY, async () => {
+        try {
+            const recentTrips      = await readTripsStrict(RECENTS_KEY);
+            const trip             = normalizeTrip(origin, destination);
+            const tripsByOriginIds = {};
+
+            const nextRecentTrips = [
+                trip,
+                ...recentTrips.filter(item => !isSameTrip(item, trip))
+            ].filter(item => {
+                tripsByOriginIds[item.origin.id] = (tripsByOriginIds[item.origin.id] || 0) + 1;
+
+                return tripsByOriginIds[item.origin.id] <= MAX_RECENT_TRIPS;
+            }).slice(0, MAX_RECENT_TRIPS_TOTAL);
+
+            await writeJSONStrict(RECENTS_KEY, nextRecentTrips);
+
+            return true;
+        } catch (exception) {
+            console.warn('Preferences: couldn\'t record recent trip:', exception);
+        }
+
+        return false;
+    }),
+
+    buildTrip: (origin, destination) => normalizeTrip(origin, destination),
+
+    isSameTrip: (left, right) => isSameTrip(left, right),
+
+    // Maps a stored trip to current station objects; returns null if either end no longer exists.
+    resolveTrip: (trip, stations) => {
+        if (!isValidTrip(trip) || !Array.isArray(stations)) { return null; }
+
+        const origin      = resolveStation(trip.origin,      stations);
+        const destination = resolveStation(trip.destination, stations);
+
+        if (!origin || !destination || origin.id === destination.id) { return null; }
+
+        return { id: `${origin.id}:${destination.id}`, origin, destination };
     },
 
     getReminderNotificationId: async (origin, destination) => {

@@ -1,6 +1,6 @@
 import normalizeSpecialCharacters from 'specialtonormal';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ActivityIndicator as RNActivityIndicator,
@@ -13,6 +13,8 @@ import {
   Vibration,
   View
 } from 'react-native';
+
+import { useFocusEffect } from '@react-navigation/native';
 
 import IDomParser from 'advanced-html-parser';
 
@@ -100,7 +102,7 @@ const compactReminderStatus = message => {
   return message;
 };
 
-export function NextSchedulePane({ navigation, origin, destination, segmentsList, holidaysList, onReplaceRoute, forcePreviewData = false }) {
+export function NextSchedulePane({ navigation, origin, destination, segmentsList, holidaysList, onReplaceRoute, onFavoriteChange, favoritesVersion, forcePreviewData = false }) {
     return (
       <NextScheduleContent
         navigation={navigation}
@@ -108,6 +110,8 @@ export function NextSchedulePane({ navigation, origin, destination, segmentsList
         embedded
         forcePreviewData={forcePreviewData}
         onReplaceRoute={onReplaceRoute}
+        onFavoriteChange={onFavoriteChange}
+        favoritesVersion={favoritesVersion}
       />
     );
 }
@@ -116,7 +120,7 @@ export default function NextSchedule({ navigation, route }) {
     return <NextScheduleContent navigation={navigation} route={route} />;
 }
 
-function NextScheduleContent({ navigation, route, embedded = false, forcePreviewData = false, onReplaceRoute }) {
+function NextScheduleContent({ navigation, route, embedded = false, forcePreviewData = false, onReplaceRoute, onFavoriteChange, favoritesVersion }) {
     const { theme }  = useTheme();
     const responsive = useResponsiveMetrics();
     const previewMode = getUIPreviewMode();
@@ -402,9 +406,21 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     };
 
     const toggleFavorite = async () => {
-      const nowFavorite = await Preferences.toggleFavoriteTrip(origin, destination);
-      setIsFavorite(nowFavorite);
-      setRouteStatus(nowFavorite ? Lang.t('routeSavedMessage') : Lang.t('routeRemovedMessage'));
+      const shouldBeFavorite = !isFavorite;
+
+      setIsFavorite(shouldBeFavorite);
+
+      try {
+        await Preferences.setFavoriteTrip(origin, destination, shouldBeFavorite);
+        setRouteStatus(shouldBeFavorite ? Lang.t('routeSavedMessage') : Lang.t('routeRemovedMessage'));
+      } catch (exception) {
+        console.warn('toggleFavorite: couldn\'t update favorite trip:', exception);
+        setRouteStatus(Lang.t('favoriteUpdateFailedMessage'));
+      }
+
+      await refreshFavoriteState();
+
+      if (onFavoriteChange) { onFavoriteChange(); }
     };
 
     const reverseRoute = () => {
@@ -463,6 +479,17 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
       setIsReminderActive(result.ok);
       setReminderStatus(result.message);
     };
+
+    useFocusEffect(
+      useCallback(() => {
+        refreshFavoriteState();
+      }, [ origin?.id, destination?.id ])
+    );
+
+    useEffect(() => {
+      if (typeof(favoritesVersion) == 'undefined') { return; }
+      refreshFavoriteState();
+    }, [ favoritesVersion ]);
 
     useEffect(() => {
       refreshFavoriteState();
