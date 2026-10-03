@@ -78,9 +78,13 @@ const filterStations = (stations, query) => {
 const quickTripAccessibilityLabel = (trip, kind) => Lang.t(kind === 'favorite' ? 'pickerFavoriteTripA11yLabel' : 'pickerRecentTripA11yLabel')
     .replace('%s', `${trip.origin.title} ${Lang.t('to')} ${trip.destination.title}`);
 
+// Watch only: on phones/tablets Settings lives in the header "⋮" menu or the navigation rail.
 function SettingsButton({ navigation, compact = false }) {
     const { theme } = useTheme();
+    const { isWatch } = useResponsiveMetrics();
     const size      = compact ? 44 : 48;
+
+    if (!isWatch) { return null; }
 
     return (
         <IconButton

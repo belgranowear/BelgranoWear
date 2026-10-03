@@ -115,8 +115,11 @@ const styles = StyleSheet.create({
         flex:          2,
         flexDirection: 'row'
     },
+    // Not `flex: 0`: on web that means flex-basis 0 %, which collapses the row inside the column.
     pairStacked: {
-        flex: 0
+        flexGrow:   0,
+        flexShrink: 0,
+        flexBasis:  'auto'
     },
     cell: {
         flex:              1,
