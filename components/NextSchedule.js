@@ -36,6 +36,7 @@ import Lang        from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import Reminders   from '../includes/Reminders';
 import { getUIPreviewMode, isWatchUIPreview } from '../includes/UIPreview';
+import { isRoundScreen } from '../includes/Device';
 
 import OfflineModeHint from './OfflineModeHint';
 import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
@@ -128,7 +129,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     const watchReminderButtonWidth = watchLayout ? Math.round(responsive.roundSafeWidth * 0.78) : undefined;
     const phoneActionButtonCompact = !watchLayout && responsive.isCompact;
     const tabletActionButton = !watchLayout && (embedded || responsive.isTablet);
-    const watchScrollHintIsRounded = watchLayout && Math.abs(screenDimensions.width - screenDimensions.height) <= 32;
+    const watchScrollHintIsRounded = isRoundScreen({ width: screenDimensions.width, height: screenDimensions.height, watch: watchLayout });
     const watchHeaderTextWidth = watchLayout
       ? Math.round(responsive.roundSafeWidth * (watchScrollHintIsRounded ? 0.66 : 0.84))
       : undefined;

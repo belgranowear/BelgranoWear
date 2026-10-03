@@ -1,21 +1,44 @@
 import * as Localization  from 'expo-localization';
 import { I18n }           from 'i18n-js';
 
-const Lang    = new I18n();
-const locales = Localization.getLocales();
+const Lang              = new I18n();
+const SUPPORTED_LOCALES = [ 'es', 'en' ];
 
 Lang.defaultLocale = 'en';
 Lang.locale        = Lang.defaultLocale;
 
-if (
-    locales.length > 0
-    &&
-    typeof(locales[0]) != 'undefined'
-) {
-    Lang.locale = locales[0].languageCode;
-} else {
-    console.warn(`No locales detected, falling back to ${Lang.defaultLocale}.`);
-}
+const detectLocale = () => {
+    let locales = [];
+
+    try {
+        locales = Localization.getLocales() || [];
+    } catch (exception) {
+        console.warn('Lang: failed to read device locales:', exception);
+    }
+
+    const languageCode = locales
+        .map(locale => (locale?.languageCode || locale?.languageTag?.split('-')[0] || '').toLowerCase())
+        .find(code => SUPPORTED_LOCALES.indexOf(code) > -1);
+
+    if (!languageCode) {
+        console.warn(`No supported locales detected, falling back to ${Lang.defaultLocale}.`);
+    }
+
+    return languageCode || Lang.defaultLocale;
+};
+
+// Returns true when the device language changed since the last detection.
+Lang.refreshLocale = () => {
+    const nextLocale = detectLocale();
+
+    if (nextLocale === Lang.locale) { return false; }
+
+    Lang.locale = nextLocale;
+
+    return true;
+};
+
+Lang.refreshLocale();
 
 Lang.enableFallback = true;
 Lang.translations   = {

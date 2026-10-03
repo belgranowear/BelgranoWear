@@ -14,9 +14,9 @@ import {
 import { Button, Card as PaperCard, Chip, Text, TouchableRipple } from 'react-native-paper';
 
 import { useTheme } from '../includes/Theme';
-import { isWatchUIPreview } from '../includes/UIPreview';
+import { isWatchDevice } from '../includes/Device';
 
-export const isWatch = () => Platform.constants?.uiMode === 'watch' || isWatchUIPreview();
+export const isWatch = () => isWatchDevice();
 
 const WatchScrollMetricsContext = createContext({
     enabled: false,
@@ -98,7 +98,7 @@ export function useResponsiveMetrics() {
     const shortestSide = Math.min(width, height);
     const longestSide = Math.max(width, height);
     const fontScale = PixelRatio.getFontScale();
-    const watch = isWatch() || (Platform.OS === 'android' && shortestSide <= 500 && Math.abs(width - height) <= 32);
+    const watch = isWatchDevice({ width, height });
     const tablet = !watch && shortestSide >= 600;
     const twoPane = tablet && width >= 720;
     const roundTopInset = watch ? clamp(shortestSide * 0.035, 8, 18) : 0;

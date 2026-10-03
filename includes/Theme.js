@@ -157,9 +157,13 @@ const resolveSystemScheme = systemScheme => {
 export function ThemeProvider({ children }) {
     const systemScheme = useColorScheme();
     const [ themeMode, setThemeModeState ] = useState('system');
+    const [ ready,     setReady          ] = useState(false);
 
     useEffect(() => {
-        Preferences.getThemeMode().then(setThemeModeState);
+        Preferences.getThemeMode()
+            .then(setThemeModeState)
+            .catch(exception => console.warn('Theme: failed to load theme mode:', exception))
+            .finally(() => setReady(true));
     }, []);
 
     const activeScheme = themeMode === 'system'
@@ -196,8 +200,9 @@ export function ThemeProvider({ children }) {
         activeScheme,
         setThemeMode,
         cycleThemeMode,
+        ready,
         isAndroidDynamicColorAvailable: isAndroidDynamicColorAvailable()
-    }), [ appTheme, paperTheme, navigationTheme, themeMode, activeScheme ]);
+    }), [ appTheme, paperTheme, navigationTheme, themeMode, activeScheme, ready ]);
 
     return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
