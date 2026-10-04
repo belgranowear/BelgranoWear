@@ -20,7 +20,7 @@ import { useTheme } from '../includes/Theme';
 import { AppScreen, useResponsiveMetrics } from './ui';
 import WatchScreenHeader from './watch/WatchScreenHeader';
 
-const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
+const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '3.0.0';
 
 function WatchThemeOption({ mode, label, selected, onPress }) {
     const { theme } = useTheme();

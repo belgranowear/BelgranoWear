@@ -25,7 +25,7 @@ import { AppScreen, useResponsiveMetrics } from './ui';
 import WatchScreenHeader from './watch/WatchScreenHeader';
 
 const APP_REPOSITORY_URL = 'https://github.com/belgranowear/BelgranoWear';
-const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
+const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '3.0.0';
 
 const openURL = url => {
     if (!url) { return; }
