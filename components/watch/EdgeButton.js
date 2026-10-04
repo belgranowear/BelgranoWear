@@ -5,6 +5,8 @@ import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from 'reac
 import { Button, Icon, Text } from 'react-native-paper';
 import Svg, { Path } from 'react-native-svg';
 
+import EdgeFade from './EdgeFade';
+
 import { isRoundScreen, isWatchDevice } from '../../includes/Device';
 import { useTheme } from '../../includes/Theme';
 
@@ -12,7 +14,6 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const SQUARE_SIDE_MARGIN   = 8;
 const SQUARE_BOTTOM_MARGIN = 6;
-
 /**
  * Geometry shared by EdgeButton and by screens that need to reserve room for it.
  *
@@ -197,7 +198,7 @@ export default function EdgeButton({
         ? (geometry.isRound ? styles.absoluteRound : styles.absoluteSquare)
         : null;
 
-    return (
+    const button = (
         <Animated.View
             style={[
                 geometry.isRound
@@ -236,6 +237,18 @@ export default function EdgeButton({
                 )}
             </Pressable>
         </Animated.View>
+    );
+
+    if (placement !== 'absolute') { return button; }
+
+    const scrimHeight = geometry.isRound ? geometry.height : geometry.height + SQUARE_BOTTOM_MARGIN;
+
+    return (
+        <>
+            {/* Content scrolling towards the button dissolves instead of showing around the cap. */}
+            <EdgeFade edge="bottom" solid={scrimHeight} color={theme.background} />
+            {button}
+        </>
     );
 }
 

@@ -12,6 +12,7 @@ import { useTheme } from '../../includes/Theme';
 
 import * as UI from '../ui';
 import CurvedText from '../watch/CurvedText';
+import EdgeFade from '../watch/EdgeFade';
 import EdgeButton, * as EdgeButtonModule from '../watch/EdgeButton';
 import useRotaryScroll from '../watch/useRotaryScroll';
 
@@ -290,7 +291,9 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
                     {body}
                 </Animated.ScrollView>
 
-                <View pointerEvents="none" style={[ styles.titleBar, round ? styles.titleBarRound : { top: responsive.roundTopInset }, { backgroundColor: theme.background } ]}>
+                {/* Rows scrolling up dissolve under the curved title instead of showing around it. */}
+                <EdgeFade edge="top" solid={topPadding - 8} fade={16} color={theme.background} />
+                <View pointerEvents="none" style={[ styles.titleBar, round ? styles.titleBarRound : { top: responsive.roundTopInset } ]}>
                     <CurvedText text={routeTitle} position="top" fontSize={12} color={theme.textMuted} />
                 </View>
 

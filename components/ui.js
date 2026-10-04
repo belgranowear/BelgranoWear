@@ -760,7 +760,10 @@ const styles = StyleSheet.create({
         top: 0,
         right: 0,
         bottom: 0,
-        left: 0
+        left: 0,
+        // Above the EdgeButton scrim, which hides content near the bottom edge.
+        zIndex: 20,
+        elevation: 20
     },
     card: {
         borderWidth: StyleSheet.hairlineWidth,

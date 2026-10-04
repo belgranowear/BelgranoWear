@@ -20,6 +20,7 @@ import StopTimeline from './trip/StopTimeline';
 import TripSummary, { describeSummary } from './trip/TripSummary';
 import useTripDetail from './trip/useTripDetail';
 import CurvedText from './watch/CurvedText';
+import EdgeFade from './watch/EdgeFade';
 import EdgeButton, * as EdgeButtonModule from './watch/EdgeButton';
 import useRotaryScroll from './watch/useRotaryScroll';
 import * as UI from './ui';
@@ -200,6 +201,7 @@ export default function TripDetail({ route }) {
         const side        = responsive.shortestSide;
         const sidePadding = round ? Math.round(side * 0.1) : 8;
         const entries     = buildWatchEntries(stops, detail.live, expanded, () => setExpanded(true));
+        const topBand     = round ? Math.round(side * 0.13) : 20;
 
         return (
             <AppScreen scroll={false}>
@@ -210,7 +212,8 @@ export default function TripDetail({ route }) {
                         styles.watchContent,
                         {
                             paddingHorizontal: sidePadding,
-                            paddingTop:        round ? Math.round(side * 0.04) : 4,
+                            // Room for the pinned time band above the first row.
+                            paddingTop:        topBand + (round ? Math.round(side * 0.02) : 4),
                             // Lets the last row scroll up into the widest part of the circle.
                             paddingBottom:     (round ? Math.round(side * 0.2) : 12) + (canFollow ? (edge?.reservedSpace || 0) : 0)
                         }
@@ -221,7 +224,6 @@ export default function TripDetail({ route }) {
                     scrollEventThrottle={16}
                     showsVerticalScrollIndicator={false}
                 >
-                    <CurvedText text={wallTextOf(nowInArgentina())} position="top" />
                     <View
                         accessible
                         accessibilityLabel={describeSummary({ departureText, arrivalText, durationMinutes: summary.durationMinutes, stopsCount: summary.stopsCount })}
@@ -247,6 +249,11 @@ export default function TripDetail({ route }) {
                         <Button compact mode="text" onPress={() => setExpanded(false)} style={styles.watchToggle}>{Lang.t('tripShowLess')}</Button>
                     ) : null}
                 </ScrollView>
+                {/* Pinned time: stops dissolve under it instead of showing around the curved text. */}
+                <EdgeFade edge="top" solid={topBand} fade={16} color={theme.background} />
+                <View pointerEvents="none" style={styles.watchTimeBand}>
+                    <CurvedText text={wallTextOf(nowInArgentina())} position="top" />
+                </View>
                 {tracker?.showIndicator && WatchArcScrollIndicator ? (
                     <WatchArcScrollIndicator
                         contentHeight={tracker.contentHeight}
@@ -395,6 +402,13 @@ const styles = StyleSheet.create({
     },
     watchContent: {
         gap: 6
+    },
+    watchTimeBand: {
+        position:   'absolute',
+        top:        0,
+        left:       0,
+        right:      0,
+        alignItems: 'center'
     },
     watchSummary: {
         alignItems: 'center',
