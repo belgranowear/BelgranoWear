@@ -22,7 +22,6 @@ import { getPreciseDistance } from 'geolib';
 import { MD5 } from 'crypto-js';
 
 import {
-  ActivityIndicator,
   Button,
   Icon,
   IconButton,

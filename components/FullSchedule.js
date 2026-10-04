@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { SectionList, StyleSheet, View } from 'react-native';
 
-import { ActivityIndicator, Button, FAB, Icon, SegmentedButtons, Text, TouchableRipple } from 'react-native-paper';
+import { Button, FAB, Icon, SegmentedButtons, Text, TouchableRipple } from 'react-native-paper';
 
 import Lang from '../includes/Lang';
 import { useTheme } from '../includes/Theme';
@@ -10,6 +10,7 @@ import { useTheme } from '../includes/Theme';
 import FreshnessChip from './FreshnessChip';
 import RouteHeader from './RouteHeader';
 import { AppScreen, EmptyState, TransitCard, useResponsiveMetrics } from './ui';
+import LoadingIndicator from './layout/LoadingIndicator';
 
 import { HourHeader, NowDivider, TripRow, getRowMetrics } from './fullSchedule/ScheduleRows';
 import WatchFullSchedule from './fullSchedule/WatchFullSchedule';
@@ -134,7 +135,7 @@ function PhoneFullSchedule({ params, schedule, onOpenTrip, responsive }) {
     if (status === STATUS.LOADING) {
         body = (
             <View style={styles.centered} accessibilityLiveRegion="polite">
-                <ActivityIndicator />
+                <LoadingIndicator accessibilityLabel={Lang.t('fullScheduleLoading')} />
                 <Text variant="bodyMedium" style={{ color: theme.textMuted }}>{Lang.t('fullScheduleLoading')}</Text>
             </View>
         );

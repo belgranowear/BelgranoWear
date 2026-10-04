@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, Text } from 'react-native-paper';
 
@@ -24,6 +24,7 @@ import EdgeFade from './watch/EdgeFade';
 import EdgeButton, * as EdgeButtonModule from './watch/EdgeButton';
 import useRotaryScroll from './watch/useRotaryScroll';
 import * as UI from './ui';
+import LoadingIndicator from './layout/LoadingIndicator';
 import { AppScreen, EmptyState, SectionHeader, TransitCard, useResponsiveMetrics } from './ui';
 
 const SHORT_HEIGHT_MAX     = 480;
@@ -180,7 +181,7 @@ export default function TripDetail({ route }) {
             <AppScreen scroll={false} contentStyle={styles.centered}>
                 {isLoading ? (
                     <View style={styles.loading} accessible accessibilityLiveRegion="polite" accessibilityLabel={Lang.t('tripLoading')}>
-                        <ActivityIndicator color={theme.accent} />
+                        <LoadingIndicator />
                         <Text variant="bodyMedium" style={{ color: theme.textMuted, textAlign: 'center' }}>{Lang.t('tripLoading')}</Text>
                     </View>
                 ) : (

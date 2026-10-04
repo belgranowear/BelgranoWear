@@ -272,6 +272,9 @@ const withBelgranoGradleProperties = config => withGradleProperties(config, conf
   ensureGradleProperty(config.modResults, 'expo.webp.enabled', 'true');
   ensureGradleProperty(config.modResults, 'expo.webp.animated', 'false');
   ensureGradleProperty(config.modResults, 'expo.useLegacyPackaging', 'false');
+  // R8 shrinking/obfuscation for release builds (Play flags apps under 25% obfuscation).
+  // Resource shrinking stays off: RN and Expo look up some resources by name at runtime.
+  ensureGradleProperty(config.modResults, 'android.enableMinifyInReleaseBuilds', 'true');
 
   return config;
 });
@@ -377,6 +380,26 @@ const withBelgranoAndroidResources = config => withDangerousMod(config, ['androi
   return config;
 }]);
 
+const PROGUARD_MARKER = '# belgrano: keep rules (plugins/withBelgranoNativeConfig.js)';
+// Our Kotlin sources are small; keeping them whole avoids breaking the reflective
+// BelgranoWearOngoing lookup in LiveTripNotifier and the manifest-declared services.
+const PROGUARD_RULES = `
+${PROGUARD_MARKER}
+-keep class ar.com.facundomontero.belgranowear.** { *; }
+-keep class org.devio.rn.splashscreen.** { *; }
+`;
+
+const withBelgranoProguardRules = config => withDangerousMod(config, ['android', config => {
+  const rulesFile = path.join(config.modRequest.platformProjectRoot, 'app', 'proguard-rules.pro');
+  const current = fs.existsSync(rulesFile) ? fs.readFileSync(rulesFile, 'utf8') : '';
+
+  if (!current.includes(PROGUARD_MARKER)) {
+    fs.writeFileSync(rulesFile, `${current.trimEnd()}\n${PROGUARD_RULES}`);
+  }
+
+  return config;
+}]);
+
 module.exports = function withBelgranoNativeConfig(config) {
   config = withBelgranoAndroidManifest(config);
   config = withBelgranoGradleProperties(config);
@@ -384,6 +407,7 @@ module.exports = function withBelgranoNativeConfig(config) {
   config = withBelgranoAppBuildGradle(config);
   config = withBelgranoMainActivity(config);
   config = withBelgranoAndroidResources(config);
+  config = withBelgranoProguardRules(config);
   config = withBelgranoAndroidColors(config);
   config = withBelgranoAndroidStyles(config);
   config = withBelgranoNetworkSecurity(config);

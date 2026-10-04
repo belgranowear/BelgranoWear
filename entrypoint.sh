@@ -355,7 +355,7 @@ copy_android_artifacts() {
         fi
 
         cp -v "$file" "$ARTIFACTS_PATH/$file_name"
-    done < <(find "$source_dir" -type f \( -name '*.apk' -o -name '*.aab' \) -print0)
+    done < <(find "$source_dir" -type f \( -name '*.apk' -o -name '*.aab' -o -name 'mapping.txt' \) -print0)
     endgroup
 }
 

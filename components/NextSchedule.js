@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  ActivityIndicator as RNActivityIndicator,
   Animated,
   AppState,
   Dimensions,
@@ -51,6 +50,7 @@ import CurvedText       from './watch/CurvedText';
 import EdgeButton, * as EdgeButtonModule from './watch/EdgeButton';
 import { AppScreen, MessageScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 import LazyMenu from './layout/LazyMenu';
+import LoadingIndicator from './layout/LoadingIndicator';
 
 const SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT = 3;
 
@@ -906,12 +906,12 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
           {watchLayout ? (
             // No card on watches: its full-width corners are clipped by a round face.
             <View style={[ styles.watchLoading, { width: watchListWidth } ]}>
-              <RNActivityIndicator color={theme.accent} accessibilityLabel={currentOperation} />
+              <LoadingIndicator size={40} accessibilityLabel={currentOperation} />
               <Text style={[ styles.watchLoadingText, { color: theme.text } ]}>{currentOperation}</Text>
             </View>
           ) : (
             <TransitCard style={styles.loadingCard}>
-              <RNActivityIndicator color={theme.accent} accessibilityLabel={currentOperation} />
+              <LoadingIndicator accessibilityLabel={currentOperation} />
               <Text variant="titleMedium" style={styles.centerText}>{currentOperation}</Text>
             </TransitCard>
           )}
@@ -980,7 +980,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
     );
 
     const liveLoader = shouldLoopAnimation ? (
-      <RNActivityIndicator color={theme.accent} style={watchLayout ? styles.haTimeLoaderWatch : styles.haTimeLoader} />
+      <LoadingIndicator size={24} contained={false} style={watchLayout ? styles.haTimeLoaderWatch : styles.haTimeLoader} />
     ) : null;
 
     const walkEstimateCard = (

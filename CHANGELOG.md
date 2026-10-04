@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.1
+
+### Cambios
+
+- Los indicadores de carga que quedaban (horario completo, viaje, próximo tren y reloj) usan el nuevo indicador de Material 3 Expressive.
+- Las builds de release se optimizan y ofuscan con R8, y el archivo de desofuscación (`mapping.txt`) queda junto a los artefactos.
+
 ## 3.0.0
 
 Rediseño completo con Material 3 Expressive, funciones nuevas para planificar el viaje y soporte de primera clase para relojes Wear OS.
@@ -38,10 +45,28 @@ Rediseño completo con Material 3 Expressive, funciones nuevas para planificar e
 
 ### Notas para Play Store
 
-**es-419**
+**Teléfonos, tablets y escritorio (es-419)**
 
-> Rediseño completo con Material 3 Expressive. Nuevo: horario completo del día, viaje con todas las paradas y horarios de paso, estimación de si llegás caminando, recordatorios semanales, rutinas sugeridas y seguimiento del viaje con notificación y widgets. En Wear OS: Tile, complicaciones, scroll con la corona y pantallas adaptadas a relojes redondos.
+```
+Versión 3.0: la app tiene un diseño completamente nuevo, con Material 3 Expressive.
 
-**en-US**
+• Horario completo del día, con primer y último tren
+• Viaje con todas las paradas y su hora de paso
+• ¿Llego?: estimación de cuánto tardás caminando a la estación
+• Recordatorios semanales y rutinas sugeridas
+• Seguimiento del viaje con notificación y widgets
+• Diseño en dos paneles para tablets
+```
 
-> A complete Material 3 Expressive redesign. New: full daily timetable, trip view with every stop and pass time, walking "will I make it?" estimate, weekly reminders, suggested routines and live trip tracking with a notification and widgets. On Wear OS: a Tile, complications, rotary scrolling and layouts tailored to round watches.
+**Wear OS (es-419)**
+
+```
+Versión 3.0: la app tiene un diseño completamente nuevo para Wear OS.
+
+• Pantallas adaptadas a relojes redondos y cuadrados
+• Tile con el próximo tren y complicaciones para la esfera
+• Scroll con la corona o el bisel giratorio
+• Horario completo y viaje con todas las paradas
+• Recordatorios semanales
+• Seguimiento del viaje como actividad en curso
+```

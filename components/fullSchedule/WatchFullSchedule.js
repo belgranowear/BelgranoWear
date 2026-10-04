@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Animated, StyleSheet, View } from 'react-native';
 
-import { ActivityIndicator, Button, Chip, Text, TouchableRipple } from 'react-native-paper';
+import { Button, Chip, Text, TouchableRipple } from 'react-native-paper';
 
 import { useIsFocused } from '@react-navigation/native';
 
@@ -11,6 +11,7 @@ import { isRoundScreen } from '../../includes/Device';
 import { useTheme } from '../../includes/Theme';
 
 import * as UI from '../ui';
+import LoadingIndicator from '../layout/LoadingIndicator';
 import CurvedText from '../watch/CurvedText';
 import EdgeFade from '../watch/EdgeFade';
 import EdgeButton, * as EdgeButtonModule from '../watch/EdgeButton';
@@ -229,7 +230,7 @@ export default function WatchFullSchedule({ params, schedule, onOpenTrip }) {
     let body;
 
     if (status === STATUS.LOADING) {
-        body = <ActivityIndicator style={styles.state} />;
+        body = <View style={styles.state}><LoadingIndicator size={40} accessibilityLabel={Lang.t('fullScheduleLoading')} /></View>;
     } else if (status === STATUS.ERROR) {
         body = (
             <View style={styles.state}>
