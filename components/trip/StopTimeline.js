@@ -119,7 +119,7 @@ function StopRow({ entry, isFirst, isLast, previousTravel, compact, theme }) {
             </View>
             <Text
                 variant={compact ? 'bodySmall' : (isEndpoint ? 'titleMedium' : 'bodyLarge')}
-                numberOfLines={compact ? 1 : 2}
+                numberOfLines={2}
                 style={[
                     styles.title,
                     { color: isUpstream ? theme.textMuted : theme.text },

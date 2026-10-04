@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
 
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { Button, Icon, Text } from 'react-native-paper';
 
+import { isRoundScreen } from '../includes/Device';
 import Lang from '../includes/Lang';
 import Preferences from '../includes/Preferences';
 import Reminders from '../includes/Reminders';
 import { useTheme } from '../includes/Theme';
 
+import { WatchScaleItem } from './ui';
 import ReminderEditor, { DEFAULT_LEAD_MINUTES, DEFAULT_REMINDER_TIME, WORKING_WEEKDAYS, formatRoute } from './ReminderEditor';
 
 // A usual time is only suggested once the trip was opened at least this often in the same 5-minute slot.
@@ -66,6 +68,11 @@ const suggestionMessage = suggestion => {
  */
 export default function RoutineCard({ recentTrips, onOpenTrip, onOpenReminders, compact = false, style }) {
     const { theme } = useTheme();
+    const { width, height } = useWindowDimensions();
+
+    // On watches the card is a list item: as wide as the Desde chip on round faces, and scaled
+    // by its distance from the centre like its neighbours so it never sits flat against the bezel.
+    const compactWidth = compact && isRoundScreen({ width, height, watch: true }) ? '80%' : '92%';
 
     const [ suggestion,  setSuggestion  ] = useState(null);
     const [ editorValue, setEditorValue ] = useState(null);
@@ -126,6 +133,8 @@ export default function RoutineCard({ recentTrips, onOpenTrip, onOpenReminders, 
         setStatus({ text: result.message, saved: Boolean(result.reminder) });
     };
 
+    const wrapCompact = card => (compact ? <WatchScaleItem maxScale={1}>{card}</WatchScaleItem> : card);
+
     const editor = (
         <ReminderEditor
             visible={Boolean(editorValue)}
@@ -141,14 +150,16 @@ export default function RoutineCard({ recentTrips, onOpenTrip, onOpenReminders, 
         // Confirmation after saving, with a shortcut to the list; disappears on the next visit.
         return (
             <>
-                <View style={[ compact ? styles.compactCard : styles.card, { backgroundColor: theme.roles.surfaceContainerHigh, borderRadius: compact ? 24 : theme.shape.xl }, style ]}>
-                    <Text variant={compact ? 'labelLarge' : 'titleSmall'} style={compact ? styles.centerText : null}>{status.text}</Text>
-                    {onOpenReminders ? (
-                        <Button mode="text" compact icon="bell-outline" onPress={onOpenReminders} style={compact ? null : styles.leftButton}>
-                            {Lang.t('screenRemindersName')}
-                        </Button>
-                    ) : null}
-                </View>
+                {wrapCompact(
+                    <View style={[ compact ? [ styles.compactCard, { width: compactWidth } ] : styles.card, { backgroundColor: theme.roles.surfaceContainerHigh, borderRadius: compact ? 24 : theme.shape.xl }, style ]}>
+                        <Text variant={compact ? 'labelLarge' : 'titleSmall'} style={compact ? styles.centerText : null}>{status.text}</Text>
+                        {onOpenReminders ? (
+                            <Button mode="text" compact icon="bell-outline" onPress={onOpenReminders} style={compact ? null : styles.leftButton}>
+                                {Lang.t('screenRemindersName')}
+                            </Button>
+                        ) : null}
+                    </View>
+                )}
                 {editor}
             </>
         );
@@ -160,24 +171,29 @@ export default function RoutineCard({ recentTrips, onOpenTrip, onOpenReminders, 
     if (compact) {
         return (
             <>
-                <View style={[ styles.compactCard, { backgroundColor: theme.roles.primaryContainer }, style ]}>
-                    <Text style={[ styles.compactLabel, { color: theme.roles.primary } ]}>{Lang.t('routineSuggestionLabel')}</Text>
-                    <Pressable
-                        onPress={onOpenTrip ? () => onOpenTrip({ origin: suggestion.origin, destination: suggestion.destination }) : undefined}
-                        disabled={!onOpenTrip}
-                        accessibilityRole={onOpenTrip ? 'button' : undefined}
-                        accessibilityHint={onOpenTrip ? Lang.t('routineOpenTripHint') : undefined}
-                    >
-                        <Text numberOfLines={2} style={[ styles.compactRoute, { color: theme.roles.onPrimaryContainer } ]}>{route}</Text>
-                    </Pressable>
-                    <Text numberOfLines={3} style={[ styles.compactMessage, { color: theme.roles.onPrimaryContainer } ]}>{message}</Text>
-                    <Button mode="contained" compact onPress={openEditor} style={styles.compactButton} labelStyle={styles.compactButtonLabel}>
-                        {Lang.t('routineCreateBtnLabel')}
-                    </Button>
-                    <Button mode="text" compact onPress={dismiss} labelStyle={styles.compactButtonLabel}>
-                        {Lang.t('routineDismissBtnLabel')}
-                    </Button>
-                </View>
+                {wrapCompact(
+                    <View style={[ styles.compactCard, { width: compactWidth, backgroundColor: theme.roles.surfaceContainerHigh }, style ]}>
+                        <View style={styles.labelRow}>
+                            <Icon source="calendar-clock" size={14} color={theme.roles.primary} />
+                            <Text style={[ styles.compactLabel, { color: theme.roles.primary } ]}>{Lang.t('routineSuggestionLabel')}</Text>
+                        </View>
+                        <Pressable
+                            onPress={onOpenTrip ? () => onOpenTrip({ origin: suggestion.origin, destination: suggestion.destination }) : undefined}
+                            disabled={!onOpenTrip}
+                            accessibilityRole={onOpenTrip ? 'button' : undefined}
+                            accessibilityHint={onOpenTrip ? Lang.t('routineOpenTripHint') : undefined}
+                        >
+                            <Text numberOfLines={2} style={[ styles.compactRoute, { color: theme.text } ]}>{route}</Text>
+                        </Pressable>
+                        <Text numberOfLines={3} style={[ styles.compactMessage, { color: theme.textMuted } ]}>{message}</Text>
+                        <Button mode="contained" compact onPress={openEditor} style={styles.compactButton} labelStyle={styles.compactButtonLabel}>
+                            {Lang.t('routineCreateBtnLabel')}
+                        </Button>
+                        <Button mode="text" compact onPress={dismiss} labelStyle={styles.compactButtonLabel}>
+                            {Lang.t('routineDismissBtnLabel')}
+                        </Button>
+                    </View>
+                )}
                 {editor}
             </>
         );
@@ -246,7 +262,6 @@ const styles = StyleSheet.create({
         textAlign:      'center'
     },
     compactCard: {
-        width:          '88%',
         alignSelf:      'center',
         alignItems:     'center',
         borderRadius:   24,

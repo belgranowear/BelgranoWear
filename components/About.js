@@ -16,6 +16,7 @@ import {
     Text
 } from 'react-native-paper';
 
+import { isRoundScreen } from '../includes/Device';
 import Lang from '../includes/Lang';
 import OpenSourceLibraries from '../includes/OpenSourceLibraries';
 import { useTheme } from '../includes/Theme';
@@ -48,7 +49,8 @@ export default function About() {
             <AppScreen contentStyle={styles.watchStack}>
                 <WatchScreenHeader title={Lang.t('screenAboutName')} subtitle={Lang.t('appVersionLabel').replace('%s', appVersion)} />
 
-                <View style={styles.watchIntro}>
+                {/* Narrower on round faces so lines scrolling past the top and bottom stay off the bezel. */}
+                <View style={[ styles.watchIntro, isRoundScreen({ width: responsive.width, height: responsive.height, watch: true }) && styles.watchIntroRound ]}>
                     <Text style={styles.watchIntroText}>
                         {Lang.t('aboutDescription')}
                     </Text>
@@ -238,6 +240,9 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         alignItems: 'center',
         gap: 4
+    },
+    watchIntroRound: {
+        width: '76%'
     },
     watchIntroText: {
         textAlign: 'center',

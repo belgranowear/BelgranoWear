@@ -202,6 +202,8 @@ export default function TripDetail({ route }) {
         const sidePadding = round ? Math.round(side * 0.1) : 8;
         const entries     = buildWatchEntries(stops, detail.live, expanded, () => setExpanded(true));
         const topBand     = round ? Math.round(side * 0.13) : 20;
+        // Like the phone: no "Seguir" for a train that already arrived (but keep "Dejar" if active).
+        const showFollow  = canFollow && (phase !== 'finished' || following);
 
         return (
             <AppScreen scroll={false}>
@@ -215,7 +217,7 @@ export default function TripDetail({ route }) {
                             // Room for the pinned time band above the first row.
                             paddingTop:        topBand + (round ? Math.round(side * 0.02) : 4),
                             // Lets the last row scroll up into the widest part of the circle.
-                            paddingBottom:     (round ? Math.round(side * 0.2) : 12) + (canFollow ? (edge?.reservedSpace || 0) : 0)
+                            paddingBottom:     (round ? Math.round(side * 0.2) : 12) + (showFollow ? (edge?.reservedSpace || 0) : 0)
                         }
                     ]}
                     onScroll={tracker?.onScroll || rotary?.onScroll}
@@ -261,7 +263,7 @@ export default function TripDetail({ route }) {
                         scrollY={tracker.scrollY}
                     />
                 ) : null}
-                {canFollow ? (
+                {showFollow ? (
                     <EdgeButton
                         label={Lang.t(following ? 'tripStopFollowingShort' : 'tripFollowShort')}
                         icon="train"
