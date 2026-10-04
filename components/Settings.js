@@ -18,6 +18,7 @@ import Lang from '../includes/Lang';
 import { useTheme } from '../includes/Theme';
 
 import { AppScreen, useResponsiveMetrics } from './ui';
+import WatchScreenHeader from './watch/WatchScreenHeader';
 
 const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
 
@@ -80,14 +81,7 @@ export default function Settings({ navigation }) {
     if (watchLayout) {
         return (
             <AppScreen contentStyle={styles.watchStack}>
-                <View style={styles.watchHeader}>
-                    <Text variant="titleMedium" style={styles.watchTitle}>
-                        {Lang.t('screenSettingsName')}
-                    </Text>
-                    <Text variant="labelSmall" style={styles.watchSubtitle} numberOfLines={1}>
-                        {Lang.t('appVersionLabel').replace('%s', appVersion)}
-                    </Text>
-                </View>
+                <WatchScreenHeader title={Lang.t('screenSettingsName')} subtitle={Lang.t('appVersionLabel').replace('%s', appVersion)} />
 
                 <View style={styles.watchSection}>
                     <Text variant="labelLarge" style={styles.watchSectionTitle}>
@@ -265,25 +259,6 @@ const styles = StyleSheet.create({
     watchStack: {
         alignItems: 'center',
         gap: 8
-    },
-    watchHeader: {
-        width: '78%',
-        alignSelf: 'center',
-        alignItems: 'center',
-        paddingTop: 2,
-        paddingBottom: 4
-    },
-    watchTitle: {
-        textAlign: 'center',
-        fontWeight: '900',
-        fontSize: 20,
-        lineHeight: 24
-    },
-    watchSubtitle: {
-        textAlign: 'center',
-        opacity: 0.68,
-        fontSize: 12,
-        lineHeight: 15
     },
     watchSection: {
         width: '92%',

@@ -607,7 +607,10 @@ function WatchEditor({ visible, initialValue, onSave, onDismiss, onDelete }) {
     return (
         <NativeModal visible={visible} onRequestClose={goBack} animationType="fade" transparent={false} statusBarTranslucent>
             <View style={[ styles.watchRoot, { backgroundColor: theme.background } ]}>
+                {/* Keyed per step: the footer sits at the end of the content, so reaching it scrolls,
+                    and the next step must not open at that offset with its title cut off. */}
                 <ScrollView
+                    key={`${step}-${editor.pickerPhase || ''}`}
                     contentContainerStyle={[
                         styles.watchContent,
                         { paddingHorizontal: sideInset, paddingTop: topInset, paddingBottom: bottomInset, minHeight: responsive.height }

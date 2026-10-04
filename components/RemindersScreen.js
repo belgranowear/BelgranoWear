@@ -30,6 +30,9 @@ import ReminderEditor, {
     weekdayShort
 } from './ReminderEditor';
 import { AppScreen, EmptyState, useResponsiveMetrics } from './ui';
+import WatchConfirm from './watch/WatchConfirm';
+import WatchToast from './watch/WatchToast';
+import WatchScreenHeader from './watch/WatchScreenHeader';
 
 const CONTENT_MAX_WIDTH = 680;
 
@@ -240,6 +243,8 @@ export default function RemindersScreen({ navigation }) {
         return navigation?.addListener ? navigation.addListener('focus', loadReminders) : undefined;
     }, [ navigation, loadReminders, preview ]);
 
+    const dismissMessage = useCallback(() => setMessage(null), []);
+
     const showResult = result => {
         if (!result) { return; }
 
@@ -318,13 +323,26 @@ export default function RemindersScreen({ navigation }) {
         />
     );
 
-    const dialogs = (
+    const deleteMessage = Lang.t('reminderDeleteMessage').replace('%s', pendingDelete ? `${formatRoute(pendingDelete)} (${pendingDelete.time})` : '');
+
+    const dialogs = responsive.isWatch ? (
+        <WatchConfirm
+            visible={Boolean(pendingDelete)}
+            title={Lang.t('reminderDeleteTitle')}
+            message={deleteMessage}
+            onConfirm={confirmDelete}
+            onDismiss={() => setPendingDelete(null)}
+            confirmLabel={Lang.t('reminderDeleteBtnLabel')}
+            dismissLabel={Lang.t('reminderCancelBtnLabel')}
+            destructive
+        />
+    ) : (
         <Portal>
             <Dialog visible={Boolean(pendingDelete)} onDismiss={() => setPendingDelete(null)} style={styles.dialog}>
                 <Dialog.Title>{Lang.t('reminderDeleteTitle')}</Dialog.Title>
                 <Dialog.Content>
                     <Text variant="bodyMedium">
-                        {Lang.t('reminderDeleteMessage').replace('%s', pendingDelete ? `${formatRoute(pendingDelete)} (${pendingDelete.time})` : '')}
+                        {deleteMessage}
                     </Text>
                 </Dialog.Content>
                 <Dialog.Actions>
@@ -335,7 +353,18 @@ export default function RemindersScreen({ navigation }) {
         </Portal>
     );
 
-    const snackbar = (
+    const snackbar = responsive.isWatch ? (
+        <WatchToast
+            visible={Boolean(message)}
+            text={message?.text || ''}
+            onDismiss={dismissMessage}
+            duration={message?.action ? 7000 : 3500}
+            action={message?.action ? {
+                label:   Lang.t('reminderOpenSettingsBtnLabel'),
+                onPress: () => Reminders.openSettings(message.action)
+            } : undefined}
+        />
+    ) : (
         <Snackbar
             visible={Boolean(message)}
             onDismiss={() => setMessage(null)}
@@ -344,7 +373,7 @@ export default function RemindersScreen({ navigation }) {
                 label:   Lang.t('reminderOpenSettingsBtnLabel'),
                 onPress: () => Reminders.openSettings(message.action)
             } : undefined}
-            style={responsive.isWatch ? styles.watchSnackbar : styles.snackbar}
+            style={styles.snackbar}
         >
             {message?.text || ''}
         </Snackbar>
@@ -354,7 +383,7 @@ export default function RemindersScreen({ navigation }) {
         return (
             <View style={styles.fill}>
                 <AppScreen contentStyle={styles.watchStack}>
-                    <Text style={[ styles.watchTitle, { color: theme.text } ]}>{Lang.t('screenRemindersName')}</Text>
+                    <WatchScreenHeader title={Lang.t('screenRemindersName')} />
 
                     <Pressable
                         onPress={openNewReminder}
@@ -553,20 +582,9 @@ const styles = StyleSheet.create({
         maxWidth:       CONTENT_MAX_WIDTH,
         alignSelf:      'center'
     },
-    watchSnackbar: {
-        marginHorizontal: '12%',
-        marginBottom:   '10%'
-    },
     watchStack: {
         alignItems:     'center',
         gap:            8
-    },
-    watchTitle: {
-        textAlign:      'center',
-        fontWeight:     '900',
-        fontSize:       18,
-        lineHeight:     22,
-        paddingTop:     4
     },
     watchNewButton: {
         flexDirection:  'row',

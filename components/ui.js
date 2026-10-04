@@ -17,7 +17,7 @@ import { NavigationContext } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 
 import { useTheme } from '../includes/Theme';
-import { isWatchDevice } from '../includes/Device';
+import { isRoundScreen, isWatchDevice } from '../includes/Device';
 
 import useRotaryScroll from './watch/useRotaryScroll';
 import useWebKeyboardScroll from './layout/useWebKeyboardScroll';
@@ -685,12 +685,49 @@ export function SectionHeader({ title, subtitle, action }) {
 }
 
 export function EmptyState({ title, message, action }) {
+    const { theme } = useTheme();
+    const responsive = useResponsiveMetrics();
+
+    if (responsive.isWatch) {
+        // No card on watches: a phone card's padding and corners waste the few dp a round face
+        // has, and its edges get clipped. Plain centred text inside the circle's safe width.
+        const round = isRoundScreen({ width: responsive.width, height: responsive.height, watch: true });
+
+        return (
+            <View style={[ styles.watchEmptyState, { width: Math.round(responsive.shortestSide * (round ? 0.72 : 0.92)) } ]}>
+                {/* Error screens pass a whole sentence as the title: bold 15 dp would overflow the face. */}
+                <Text
+                    accessibilityRole="header"
+                    style={[ !message && title?.length > 40 ? styles.watchEmptyLongTitle : styles.watchEmptyTitle, { color: theme.text } ]}
+                >
+                    {title}
+                </Text>
+                {message ? <Text style={[ styles.watchEmptyMessage, { color: theme.textMuted } ]}>{message}</Text> : null}
+                {action || null}
+            </View>
+        );
+    }
+
     return (
         <TransitCard style={styles.emptyState}>
             <Text variant="titleMedium" style={styles.centerText}>{title}</Text>
             {message ? <Text variant="bodyMedium" style={styles.centerText}>{message}</Text> : null}
             {action || null}
         </TransitCard>
+    );
+}
+
+/**
+ * Full screen holding a single EmptyState: centred on watches (scrolls if the text is long),
+ * the usual top-aligned card elsewhere.
+ */
+export function MessageScreen(props) {
+    const responsive = useResponsiveMetrics();
+
+    return (
+        <AppScreen contentStyle={responsive.isWatch ? styles.watchCenteredScreen : undefined}>
+            <EmptyState {...props} />
+        </AppScreen>
     );
 }
 
@@ -808,5 +845,33 @@ const styles = StyleSheet.create({
     },
     emptyState: {
         alignItems: 'center'
+    },
+    watchEmptyState: {
+        alignSelf: 'center',
+        alignItems: 'center',
+        gap: 8
+    },
+    watchEmptyTitle: {
+        textAlign: 'center',
+        fontSize: 15,
+        lineHeight: 19,
+        fontWeight: '700'
+    },
+    watchEmptyLongTitle: {
+        textAlign: 'center',
+        fontSize: 13,
+        lineHeight: 17,
+        fontWeight: '500'
+    },
+    watchEmptyMessage: {
+        textAlign: 'center',
+        fontSize: 12,
+        lineHeight: 16
+    },
+    // Centres a short message screen vertically while still scrolling when it is longer.
+    watchCenteredScreen: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        paddingVertical: 16
     }
 });

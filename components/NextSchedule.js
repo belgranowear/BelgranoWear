@@ -49,7 +49,7 @@ import RouteHeader      from './RouteHeader';
 import WalkEstimateCard from './WalkEstimateCard';
 import CurvedText       from './watch/CurvedText';
 import EdgeButton, * as EdgeButtonModule from './watch/EdgeButton';
-import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
+import { AppScreen, MessageScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
 import LazyMenu from './layout/LazyMenu';
 
 const SCHEDULE_SCROLL_HINT_FULL_SCROLL_LIMIT = 3;
@@ -893,22 +893,28 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
 
     if (crashMessage) {
       return (
-        <AppScreen>
-          <TransitCard>
-            <Text variant="titleMedium" style={styles.centerText}>{crashMessage}</Text>
-            <Button mode="contained" onPress={retry}>{Lang.t('retryBtnLabel')}</Button>
-          </TransitCard>
-        </AppScreen>
+        <MessageScreen
+          title={crashMessage}
+          action={<Button mode="contained" icon="refresh" onPress={retry}>{Lang.t('retryBtnLabel')}</Button>}
+        />
       );
     }
 
     if (typeof(nextTripTime) == 'undefined') {
       return (
         <AppScreen scroll={false} contentStyle={styles.centerContent}>
-          <TransitCard style={styles.loadingCard}>
-            <RNActivityIndicator color={theme.accent} accessibilityLabel={currentOperation} />
-            <Text variant="titleMedium" style={styles.centerText}>{currentOperation}</Text>
-          </TransitCard>
+          {watchLayout ? (
+            // No card on watches: its full-width corners are clipped by a round face.
+            <View style={[ styles.watchLoading, { width: watchListWidth } ]}>
+              <RNActivityIndicator color={theme.accent} accessibilityLabel={currentOperation} />
+              <Text style={[ styles.watchLoadingText, { color: theme.text } ]}>{currentOperation}</Text>
+            </View>
+          ) : (
+            <TransitCard style={styles.loadingCard}>
+              <RNActivityIndicator color={theme.accent} accessibilityLabel={currentOperation} />
+              <Text variant="titleMedium" style={styles.centerText}>{currentOperation}</Text>
+            </TransitCard>
+          )}
         </AppScreen>
       );
     }
@@ -1248,16 +1254,22 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
 
             <WatchScaleItem>{walkEstimateCard}</WatchScaleItem>
 
+            {/* One action per row: two side by side leave ~25 dp for each label on a 192 dp face. */}
             <WatchScaleItem>
-              <View style={[ styles.watchChipRow, { width: watchActionsWidth } ]}>
+              <View style={[ styles.watchChipRow, { width: watchListWidth } ]}>
                 {watchChip({ key: 'schedule', icon: 'calendar-clock', label: Lang.t('viewFullScheduleShortBtnLabel'), accessibilityLabel: Lang.t('viewFullScheduleBtnLabel'), onPress: openFullSchedule, flex: true })}
+              </View>
+            </WatchScaleItem>
+
+            <WatchScaleItem>
+              <View style={[ styles.watchChipRow, { width: watchListWidth } ]}>
                 {watchChip({ key: 'trip', icon: 'map-marker-path', label: Lang.t('viewTripShortBtnLabel'), accessibilityLabel: Lang.t('viewTripBtnLabel'), onPress: () => openTripDetail(nextTripTime), flex: true })}
               </View>
             </WatchScaleItem>
 
             {liveTripAvailable ? (
               <WatchScaleItem>
-                <View style={[ styles.watchChipRow, { width: watchActionsWidth } ]}>
+                <View style={[ styles.watchChipRow, { width: watchListWidth } ]}>
                   {watchChip({
                     key:      'track',
                     icon:     isTracking ? 'stop-circle-outline' : 'navigation-variant-outline',
@@ -1273,7 +1285,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
             ) : null}
 
             <WatchScaleItem>
-              <View style={[ styles.watchChipRow, { width: watchActionsWidth } ]}>
+              <View style={[ styles.watchChipRow, { width: watchListWidth } ]}>
                 <Pressable
                   onPress={toggleFavorite}
                   accessibilityRole="button"
@@ -1289,7 +1301,7 @@ function NextScheduleContent({ navigation, route, embedded = false, forcePreview
                 >
                   <MaterialCommunityIcons name={isFavorite ? 'star' : 'star-outline'} size={20} color={isFavorite ? tokens.favorite : theme.textMuted} />
                 </Pressable>
-                {watchChip({ key: 'reverse', icon: 'swap-horizontal', label: Lang.t('reverseRouteBtnLabel'), onPress: reverseRoute, flex: true })}
+                {watchChip({ key: 'reverse', icon: 'swap-horizontal', label: Lang.t('reverseRouteShortBtnLabel'), accessibilityLabel: Lang.t('reverseRouteBtnLabel'), onPress: reverseRoute, flex: true })}
               </View>
             </WatchScaleItem>
 
@@ -1636,6 +1648,17 @@ const styles = StyleSheet.create({
   },
   centerText: {
     textAlign: 'center'
+  },
+  watchLoading: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    gap: 10
+  },
+  watchLoadingText: {
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600'
   },
   loadingCard: {
     width: '100%',

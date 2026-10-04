@@ -35,7 +35,7 @@ import { NextSchedulePane } from './NextSchedule';
 import RoutineCard from './RoutineCard';
 import StartupScreen from './StartupScreen';
 import StartupReveal from './layout/StartupReveal';
-import { AppScreen, StatusPill, TransitCard, WatchScaleItem, useResponsiveMetrics } from './ui';
+import { AppScreen, MessageScreen, StatusPill, WatchScaleItem, useResponsiveMetrics } from './ui';
 
 import Cache       from '../includes/Cache';
 import Lang        from '../includes/Lang';
@@ -418,6 +418,12 @@ export default function DestinationPicker({ navigation }) {
     const watchRound          = watchLayout && isRoundScreen({ width: responsive.width, height: responsive.height, watch: true });
     // Keeps the "Desde" chip below the round bezel's narrow top; the first list row lands near the center.
     const watchTopPadding     = watchLayout ? Math.round(responsive.shortestSide * (watchRound ? 0.1 : 0.03)) : 0;
+    // Auto-centring, as in Wear's ScalingLazyColumn: on round faces the Desde chip rests in the
+    // middle of the screen at full size, instead of at the top where the list scales it down.
+    const [ watchOriginHeight, setWatchOriginHeight ] = useState(0);
+    const watchOriginTopPadding = watchRound && watchOriginHeight > 0
+        ? Math.max(watchTopPadding, Math.round(((responsive.height - watchOriginHeight) / 2) - responsive.roundTopInset))
+        : watchTopPadding;
     // `isShortHeight` comes from ui.js once the layout agent lands it; until then derive it here (phone landscape).
     const isShortHeight       = !watchLayout && (typeof(responsive.isShortHeight) === 'boolean' ? responsive.isShortHeight : responsive.height <= 480);
     const stationColumns      = isShortHeight && !tabletTwoPane ? (responsive.width >= 840 ? 3 : 2) : 1;
@@ -1230,12 +1236,10 @@ export default function DestinationPicker({ navigation }) {
 
     if (crashMessage) {
         return withOptionalSwipeExit(
-                <AppScreen>
-                    <TransitCard>
-                        <Text variant="titleMedium" style={styles.centerText}>{crashMessage}</Text>
-                        <Button mode="contained" onPress={retryStartup}>{Lang.t('retryBtnLabel')}</Button>
-                    </TransitCard>
-                </AppScreen>
+                <MessageScreen
+                    title={crashMessage}
+                    action={<Button mode="contained" icon="refresh" onPress={retryStartup}>{Lang.t('retryBtnLabel')}</Button>}
+                />
         );
     }
 
@@ -1255,7 +1259,7 @@ export default function DestinationPicker({ navigation }) {
             return withOptionalSwipeExit(
                 <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchTopPadding } ]}>
                     <WatchScaleItem maxScale={1}>
-                        <View style={styles.manualOriginHeaderWatch}>
+                        <View style={[ styles.manualOriginHeaderWatch, watchRound && styles.manualOriginHeaderWatchRound ]}>
                             <Text accessibilityRole="header" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.72} style={[ styles.manualOriginTitleWatch, { color: theme.text } ]}>
                                 {Lang.t('chooseOriginHint')}
                             </Text>
@@ -1421,9 +1425,11 @@ export default function DestinationPicker({ navigation }) {
     // Watch (W1): Desde chip → Favoritos → Recientes → Todas, all inside the round-safe flow width.
     if (watchLayout) {
         return withOptionalSwipeExit(
-            <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchTopPadding } ]}>
+            <AppScreen contentStyle={[ styles.watchContent, { paddingTop: watchOriginTopPadding } ]}>
                 <WatchScaleItem maxScale={1}>
-                    <OriginBar {...originBarProps} variant="watch" round={watchRound} />
+                    <View onLayout={event => setWatchOriginHeight(event.nativeEvent.layout.height)}>
+                        <OriginBar {...originBarProps} variant="watch" round={watchRound} />
+                    </View>
                 </WatchScaleItem>
 
                 {routineCard}
@@ -1640,7 +1646,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center'
     },
     originWatchRound: {
-        width: '70%'
+        width: '80%'
     },
     originWatchLabel: {
         fontSize: 11,
@@ -1909,11 +1915,16 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 4
     },
+    // The two-line title starts where the circle is narrowest: narrower box, a bit lower.
+    manualOriginHeaderWatchRound: {
+        width: '68%',
+        paddingTop: 6
+    },
     manualOriginTitleWatch: {
         width: '100%',
         textAlign: 'center',
-        fontSize: 18,
-        lineHeight: 22,
+        fontSize: 16,
+        lineHeight: 20,
         fontWeight: '800',
         includeFontPadding: false
     },

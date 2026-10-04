@@ -21,6 +21,7 @@ import OpenSourceLibraries from '../includes/OpenSourceLibraries';
 import { useTheme } from '../includes/Theme';
 
 import { AppScreen, useResponsiveMetrics } from './ui';
+import WatchScreenHeader from './watch/WatchScreenHeader';
 
 const APP_REPOSITORY_URL = 'https://github.com/belgranowear/BelgranoWear';
 const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '2.1.0';
@@ -45,14 +46,7 @@ export default function About() {
     if (responsive.isWatch) {
         return (
             <AppScreen contentStyle={styles.watchStack}>
-                <View style={styles.watchHeader}>
-                    <Text variant="titleMedium" style={styles.watchTitle}>
-                        {Lang.t('screenAboutName')}
-                    </Text>
-                    <Text variant="labelSmall" style={styles.watchVersion} numberOfLines={1}>
-                        {Lang.t('appVersionLabel').replace('%s', appVersion)}
-                    </Text>
-                </View>
+                <WatchScreenHeader title={Lang.t('screenAboutName')} subtitle={Lang.t('appVersionLabel').replace('%s', appVersion)} />
 
                 <View style={styles.watchIntro}>
                     <Text style={styles.watchIntroText}>
@@ -238,25 +232,6 @@ const styles = StyleSheet.create({
     watchStack: {
         alignItems: 'center',
         gap: 8
-    },
-    watchHeader: {
-        width: '78%',
-        alignSelf: 'center',
-        alignItems: 'center',
-        paddingTop: 2,
-        paddingBottom: 2
-    },
-    watchTitle: {
-        textAlign: 'center',
-        fontWeight: '900',
-        fontSize: 20,
-        lineHeight: 24
-    },
-    watchVersion: {
-        textAlign: 'center',
-        opacity: 0.68,
-        fontSize: 12,
-        lineHeight: 15
     },
     watchIntro: {
         width: '86%',

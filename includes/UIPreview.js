@@ -28,7 +28,9 @@ const PREVIEW_MODES = [
     'reminders',
     'watch-full-schedule',
     'watch-trip',
-    'watch-reminders'
+    'watch-reminders',
+    'offline',
+    'watch-offline'
 ];
 
 // Preview mode → initial route (modes not listed open the destination picker).
@@ -41,7 +43,9 @@ const PREVIEW_ROUTES = {
     'trip':                'TripDetail',
     'watch-trip':          'TripDetail',
     'reminders':           'Reminders',
-    'watch-reminders':     'Reminders'
+    'watch-reminders':     'Reminders',
+    'offline':             'OfflineModeInfo',
+    'watch-offline':       'OfflineModeInfo'
 };
 
 export const previewRoute = {
