@@ -11,14 +11,35 @@ import { useResponsiveMetrics } from './ui';
 
 const useNativeDriver = Platform.OS !== 'web';
 const APP_ICON        = require('../assets/splash-icon.png');
+// Adaptive launcher foreground: watches show the launcher icon itself (Wear quality guidelines).
+const LAUNCHER_ICON   = require('../assets/adaptive-icon.png');
 
 // Keep in sync with the native launch screen (plugins/withBelgranoNativeConfig.js): the icon sits
 // at the exact same spot and size, so hiding the native splash reveals an identical frame and only
 // the progress row fades in.
 export const STARTUP_ICON_SIZE       = 120;
 export const STARTUP_ICON_SIZE_SHORT = 88;
-export const STARTUP_ICON_SIZE_WATCH = 52;
+export const STARTUP_ICON_SIZE_WATCH = 48;
 const STARTUP_ICON_SIZE_WATCH_COMPACT = 36;
+// An adaptive icon's 108dp layer shows only its central 72dp through the launcher's circle mask.
+const ADAPTIVE_ICON_SCALE = 108 / 72;
+
+// Watch app icon: the launcher's circular mask over the adaptive foreground, on the icon background.
+function WatchAppIcon({ size }) {
+    const layerSize = size * ADAPTIVE_ICON_SCALE;
+    const offset    = (size - layerSize) / 2;
+
+    return (
+        <View style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: '#000000' }}>
+            <Image
+                source={LAUNCHER_ICON}
+                fadeDuration={0}
+                accessibilityIgnoresInvertColors
+                style={{ position: 'absolute', top: offset, left: offset, width: layerSize, height: layerSize }}
+            />
+        </View>
+    );
+}
 const TITLE_GAP = 24;
 
 // Secondary way out of a long wait (e.g. "Elegir manualmente" while the GPS looks for a fix).
@@ -101,7 +122,7 @@ export default function StartupScreen({ operation, action }) {
 
         return (
             <View style={[ styles.root, styles.watchRoot, { backgroundColor: theme.background } ]}>
-                <Image source={APP_ICON} fadeDuration={0} accessibilityIgnoresInvertColors style={{ width: iconSize, height: iconSize, borderRadius: iconSize * 0.22 }} />
+                <WatchAppIcon size={iconSize} />
                 <Animated.View style={[ styles.watchRow, rowStyle ]}>
                     <LoadingIndicator size={32} accessibilityLabel={operation} />
                     <OperationText operation={operation} numberOfLines={2} style={styles.watchOperation} />

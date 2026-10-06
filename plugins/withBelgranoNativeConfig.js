@@ -85,7 +85,7 @@ const EXTRA_SPLASH_COLOR_DIRS = {
   'values-watch-v31':   SPLASH_COLORS.watch,
 };
 
-// assets/splash-icon.png is the rounded app tile, also used by StartupScreen.js.
+// assets/splash-icon.png is the rounded app tile, also used by StartupScreen.js (phones/tablets).
 const SPLASH_ICON_ASSET    = path.join('assets', 'splash-icon.png');
 const SPLASH_ICON_DRAWABLE = 'belgrano_splash_icon';
 
@@ -115,6 +115,27 @@ const SPLASH_ICON_V31_XML = `<?xml version="1.0" encoding="utf-8"?>
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
     android:drawable="@drawable/${SPLASH_ICON_DRAWABLE}"
     android:inset="60dp" />
+`;
+
+// Watches (Wear app quality "Branded launch"): a 48dp circular icon that matches the launcher icon,
+// centered on black. @mipmap/ic_launcher is the adaptive icon, so the system circle mask applies.
+// drawable-watch overrides the phone drawables for the pre-Android 12 window background and the
+// Android 12+ system splash (the fixed-size item stays 48dp whatever the splash icon canvas is).
+const WATCH_SPLASH_ICON_SIZE = 48;
+
+const WATCH_LAUNCH_BACKGROUND_XML = `<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splashscreen_background" />
+    <item android:width="${WATCH_SPLASH_ICON_SIZE}dp" android:height="${WATCH_SPLASH_ICON_SIZE}dp" android:gravity="center"
+        android:drawable="@mipmap/ic_launcher" />
+</layer-list>
+`;
+
+const WATCH_SPLASH_ICON_V31_XML = `<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="${WATCH_SPLASH_ICON_SIZE}dp" android:height="${WATCH_SPLASH_ICON_SIZE}dp" android:gravity="center"
+        android:drawable="@mipmap/ic_launcher" />
+</layer-list>
 `;
 
 // react-native-splash-screen layout (shown until JS calls hide()). Icon centered like the system
@@ -158,10 +179,10 @@ const LAUNCH_SCREEN_WATCH_XML = `<?xml version="1.0" encoding="utf-8"?>
     android:orientation="vertical">
 
     <ImageView
-        android:layout_width="52dp"
-        android:layout_height="52dp"
+        android:layout_width="${WATCH_SPLASH_ICON_SIZE}dp"
+        android:layout_height="${WATCH_SPLASH_ICON_SIZE}dp"
         android:importantForAccessibility="no"
-        android:src="@drawable/${SPLASH_ICON_DRAWABLE}" />
+        android:src="@mipmap/ic_launcher" />
 
     <Space
         android:layout_width="1dp"
@@ -371,6 +392,8 @@ const withBelgranoAndroidResources = config => withDangerousMod(config, ['androi
   writeFile(path.join(mainRes, 'layout-watch', 'launch_screen.xml'), LAUNCH_SCREEN_WATCH_XML);
   writeFile(path.join(mainRes, 'drawable', 'belgrano_launch_background.xml'), LAUNCH_BACKGROUND_XML);
   writeFile(path.join(mainRes, 'drawable', 'belgrano_splash_icon_v31.xml'), SPLASH_ICON_V31_XML);
+  writeFile(path.join(mainRes, 'drawable-watch', 'belgrano_launch_background.xml'), WATCH_LAUNCH_BACKGROUND_XML);
+  writeFile(path.join(mainRes, 'drawable-watch', 'belgrano_splash_icon_v31.xml'), WATCH_SPLASH_ICON_V31_XML);
   fs.mkdirSync(path.join(mainRes, 'drawable-nodpi'), { recursive: true });
   fs.copyFileSync(
     path.join(config.modRequest.projectRoot, SPLASH_ICON_ASSET),
