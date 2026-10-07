@@ -126,7 +126,9 @@ export default function LoadingIndicator({ size = 48, contained = true, color, a
 }
 
 const styles = StyleSheet.create({
+    // Centred by default: in a stretching column (e.g. a card's content) a fixed-size view hugs the start edge.
     root: {
+        alignSelf:      'center',
         alignItems:     'center',
         justifyContent: 'center'
     }

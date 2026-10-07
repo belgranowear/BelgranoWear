@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.2
+
+### Correcciones
+
+- El indicador de carga del próximo viaje queda centrado en teléfonos y tablets.
+
 ## 3.0.1
 
 ### Cambios
